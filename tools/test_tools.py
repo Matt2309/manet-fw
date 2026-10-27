@@ -89,6 +89,18 @@ def test_riga_troncata_scartata(tmp_path):
     assert s.scartate == 1
 
 
+def test_righe_del_firmware_2_non_sono_scartate(tmp_path):
+    scrivi_run(tmp_path, 1)
+    p = tmp_path / "run_001.csv"
+    nuove = ["KAL,2000,2,-71.26,-0.500,2.50,4", "DET,9000,base,pre,inizio,2,-93.40",
+             "TEL,3000,prodotto,2,125,0,7,0", "CMD,4000,start,app,1,0", "BLE,5000,connesso,0",
+             "# param proto=2 tick_ms=100", "RX,5000,2,7,-61,1:-61:3:25:-3;3:-70:5:255:4,0,,5"]
+    p.write_text(p.read_text() + "\n".join(nuove) + "\n")
+    s = rp.leggi_segmento(p)
+    assert s.scartate == 0
+    assert s.rx[-1][4] == "1:-61:3:25:-3;3:-70:5:255:4"
+
+
 def test_file_senza_intestazione_ignorato(tmp_path):
     (tmp_path / "run_001.csv").write_text("TX,1,0\n")
     assert rp.leggi_segmento(tmp_path / "run_001.csv") is None

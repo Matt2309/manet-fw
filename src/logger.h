@@ -9,10 +9,11 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
+#include "csv.h"
 #include "packets.h"
 #include "nmea.h"
 
-enum class LogEventType : uint8_t { Tx, Rx, Gps, Evt, Bat, Sys };
+enum class LogEventType : uint8_t { Tx, Rx, Gps, Evt, Bat, Sys, Kal, Det, Tel, Cmd, Ble };
 
 struct LogEvent {
     LogEventType type;
@@ -33,6 +34,36 @@ struct LogEvent {
             int mv;
         } bat;
         char sys[96];
+        struct {
+            uint8_t id;
+            float signal, slope, sigma;
+            uint8_t age_ds;
+        } kal;
+        struct {
+            DetVersion version;
+            DetKind kind;
+            bool start;
+            uint8_t id;
+            float r;
+        } det;
+        struct {
+            TelAction action;
+            uint8_t id;
+            uint16_t t_s;
+            uint8_t peer;
+            uint16_t queued;
+            uint8_t tries;
+        } tel;
+        struct {
+            packets::Cmd cmd;
+            CmdOrigin origin;
+            uint8_t seq;
+            uint16_t elapsed_ds;
+        } cmd;
+        struct {
+            BleEvent event;
+            int detail;
+        } ble;
     } u;
 };
 

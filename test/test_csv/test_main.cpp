@@ -84,6 +84,60 @@ void test_rx_buffer_piccolo() {
     TEST_ASSERT_EQUAL(0, csv_rx(b, sizeof(b), 5000, x, -58, false));
 }
 
+void test_params() {
+    char b[1024];
+    size_t n = csv_params(b, sizeof(b));
+    TEST_ASSERT_GREATER_THAN(0, n);
+    // Ogni riga e' un commento "# param ...", cosi' gli script che saltano i '#' non la vedono.
+    int righe = 0;
+    for (const char* p = b; *p != '\0';) {
+        TEST_ASSERT_EQUAL_INT(0, strncmp(p, "# param ", 8));
+        const char* nl = strchr(p, '\n');
+        TEST_ASSERT_NOT_NULL(nl);
+        righe++;
+        p = nl + 1;
+    }
+    TEST_ASSERT_EQUAL(3, righe);
+    TEST_ASSERT_NOT_NULL(strstr(b, "proto=2 "));
+    TEST_ASSERT_NOT_NULL(strstr(b, "tick_ms=100 "));
+    TEST_ASSERT_NOT_NULL(strstr(b, "rx_ridotta=0\n"));
+    TEST_ASSERT_NOT_NULL(strstr(b, "tasto_lungo_ms=3000 "));
+    TEST_ASSERT_EQUAL(0, csv_params(b, 20));
+}
+
+void test_righe_nuove() {
+    char b[128];
+    csv_kal(b, sizeof(b), 2000, 3, -71.256f, -0.5f, 2.5f, 4);
+    TEST_ASSERT_EQUAL_STRING("KAL,2000,3,-71.26,-0.500,2.50,4\n", b);
+
+    csv_det(b, sizeof(b), 9000, DetVersion::Base, DetKind::PreAlarm, true, 3, -93.4f);
+    TEST_ASSERT_EQUAL_STRING("DET,9000,base,pre,inizio,3,-93.40\n", b);
+    csv_det(b, sizeof(b), 9500, DetVersion::Gnss, DetKind::Lost, false, 3, -97.0f);
+    TEST_ASSERT_EQUAL_STRING("DET,9500,gnss,perso,fine,3,-97.00\n", b);
+    csv_det(b, sizeof(b), 9600, DetVersion::Base, DetKind::Deaf, true, 0, 0.0f);
+    TEST_ASSERT_EQUAL_STRING("DET,9600,base,sorda,inizio,0,\n", b);
+
+    csv_tel(b, sizeof(b), 3000, TelAction::Produced, 2, 125, 0, 7, 0);
+    TEST_ASSERT_EQUAL_STRING("TEL,3000,prodotto,2,125,0,7,0\n", b);
+    csv_tel(b, sizeof(b), 3100, TelAction::Confirmed, 2, 125, 1, 6, 2);
+    TEST_ASSERT_EQUAL_STRING("TEL,3100,confermato,2,125,1,6,2\n", b);
+    csv_tel(b, sizeof(b), 3200, TelAction::Queued, 2, 125, 0, 8, 0);
+    TEST_ASSERT_EQUAL_STRING("TEL,3200,coda,2,125,0,8,0\n", b);
+
+    csv_cmd(b, sizeof(b), 4000, packets::Cmd::Start, CmdOrigin::App, 1, 0);
+    TEST_ASSERT_EQUAL_STRING("CMD,4000,start,app,1,0\n", b);
+    csv_cmd(b, sizeof(b), 4100, packets::Cmd::Stop, CmdOrigin::Radio, 9, 12);
+    TEST_ASSERT_EQUAL_STRING("CMD,4100,stop,radio,9,12\n", b);
+
+    csv_ble(b, sizeof(b), 5000, BleEvent::Connected, 0);
+    TEST_ASSERT_EQUAL_STRING("BLE,5000,connesso,0\n", b);
+    csv_ble(b, sizeof(b), 5100, BleEvent::Dropped, 8);
+    TEST_ASSERT_EQUAL_STRING("BLE,5100,caduto,8\n", b);
+
+    char piccolo[10];
+    TEST_ASSERT_EQUAL(0, csv_kal(piccolo, sizeof(piccolo), 2000, 3, -71.0f, 0.0f, 2.5f, 4));
+}
+
 void test_gps_completo() {
     GpsEpoch e = {};
     e.t_ms = 8000;
@@ -139,6 +193,8 @@ int main() {
     RUN_TEST(test_rx_ridotta);
     RUN_TEST(test_rx_tabella_vuota_e_massima);
     RUN_TEST(test_rx_buffer_piccolo);
+    RUN_TEST(test_params);
+    RUN_TEST(test_righe_nuove);
     RUN_TEST(test_gps_completo);
     RUN_TEST(test_gps_senza_fix);
     RUN_TEST(test_gps_senza_ora);

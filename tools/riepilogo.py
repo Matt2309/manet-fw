@@ -100,6 +100,11 @@ def _num(s: str, tipo=float):
     return tipo(s) if s != "" else None
 
 
+# Righe del firmware 2.x (rilevatore, telemetria, comandi, BLE): non servono alle statistiche
+# sui beacon, ma non sono righe malformate.
+TIPI_IGNORATI = {"KAL", "DET", "TEL", "CMD", "BLE"}
+
+
 def leggi_segmento(percorso: Path) -> Segmento | None:
     """Legge un file di registrazione; None se manca l'intestazione."""
     testo = percorso.read_text(encoding="utf-8", errors="replace")
@@ -141,6 +146,8 @@ def leggi_segmento(percorso: Path) -> Segmento | None:
                 seg.bat.append((int(f[1]), int(f[2])))
             elif tipo == "SYS":
                 seg.sys.append((int(f[1]), ",".join(f[2:])))
+            elif tipo in TIPI_IGNORATI:
+                pass
             else:
                 seg.scartate += 1
         except (ValueError, IndexError):

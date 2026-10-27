@@ -95,6 +95,24 @@ void process_event_locked(const LogEvent& e) {
         case LogEventType::Sys:
             n = csv_sys(line, sizeof(line), e.t_ms, e.u.sys);
             break;
+        case LogEventType::Kal:
+            n = csv_kal(line, sizeof(line), e.t_ms, e.u.kal.id, e.u.kal.signal, e.u.kal.slope, e.u.kal.sigma,
+                        e.u.kal.age_ds);
+            break;
+        case LogEventType::Det:
+            n = csv_det(line, sizeof(line), e.t_ms, e.u.det.version, e.u.det.kind, e.u.det.start, e.u.det.id,
+                        e.u.det.r);
+            break;
+        case LogEventType::Tel:
+            n = csv_tel(line, sizeof(line), e.t_ms, e.u.tel.action, e.u.tel.id, e.u.tel.t_s, e.u.tel.peer,
+                        e.u.tel.queued, e.u.tel.tries);
+            break;
+        case LogEventType::Cmd:
+            n = csv_cmd(line, sizeof(line), e.t_ms, e.u.cmd.cmd, e.u.cmd.origin, e.u.cmd.seq, e.u.cmd.elapsed_ds);
+            break;
+        case LogEventType::Ble:
+            n = csv_ble(line, sizeof(line), e.t_ms, e.u.ble.event, e.u.ble.detail);
+            break;
     }
     append_locked(line, n);
 }
@@ -214,6 +232,8 @@ bool open_new() {
             const char* r = strstr(hdr, "ruolo=");
             g_role_offset = r != nullptr ? static_cast<long>(r - hdr) + 6 : -1;
             append_locked(hdr, h);
+            char params[768];
+            append_locked(params, csv_params(params, sizeof(params)));
             flush_locked();
             g_last_flush = g_last_space_check = millis();
             g_state = State::Recording;

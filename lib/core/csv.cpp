@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "config.h"
+
 namespace {
 
 // Esito di snprintf -> caratteri scritti o 0 se non entra.
@@ -17,6 +19,23 @@ size_t csv_header(char* buf, size_t cap, const char* fw, int id, const char* rol
                      "# manet-fw %s id=%d ruolo=%s mac=%s canale=%d potenza_dbm=%.2f periodo_ms=%d "
                      "jitter_ms=%d rate=%s proto=%d\n",
                      fw, id, role, mac, channel, power_qdbm / 4.0, period_ms, jitter_ms, rate, proto);
+    return esito(w, cap);
+}
+
+size_t csv_params(char* buf, size_t cap) {
+    auto u = [](uint32_t v) { return static_cast<unsigned long>(v); };
+    int w = snprintf(buf, cap,
+                     "# param proto=%d max_nodi=%d tick_ms=%lu coda_rx=%d sentito_ms=%lu conflitto_capo_ms=%lu "
+                     "finestra_ruolo_ms=%lu\n"
+                     "# param flush_ms=%lu bat_log_ms=%lu spazio_min_pct=%d coda_log=%d buffer_log=%d "
+                     "riga_log=%d rx_ridotta=%d\n"
+                     "# param tasto_debounce_ms=%lu tasto_breve_max_ms=%lu tasto_lungo_ms=%lu display_ms=%lu "
+                     "bat_bassa_pct=%d bat_cal=%.3f\n",
+                     PROTO_VERSION, MAX_NODES, u(LOGIC_TICK_MS), RX_QUEUE_LEN, u(HEARD_WINDOW_MS),
+                     u(LEADER_CONFLICT_MS), u(ROLE_WINDOW_MS), u(FLUSH_INTERVAL_MS), u(BAT_LOG_INTERVAL_MS),
+                     FREE_SPACE_MIN_PCT, EVENT_QUEUE_LEN, LOG_BUFFER_BYTES, LOG_LINE_BYTES,
+                     LOG_RX_REDUCED ? 1 : 0, u(BTN_DEBOUNCE_MS), u(BTN_SHORT_MAX_MS), u(BTN_LONG_MS),
+                     u(DISPLAY_PERIOD_MS), BAT_LOW_PCT, static_cast<double>(BAT_CAL));
     return esito(w, cap);
 }
 
@@ -94,5 +113,45 @@ size_t csv_sys(char* buf, size_t cap, uint32_t t_ms, const char* msg) {
     }
     pulito[i] = '\0';
     int w = snprintf(buf, cap, "SYS,%lu,%s\n", static_cast<unsigned long>(t_ms), pulito);
+    return esito(w, cap);
+}
+
+size_t csv_kal(char* buf, size_t cap, uint32_t t_ms, int id, float signal, float slope, float sigma,
+               int age_ds) {
+    int w = snprintf(buf, cap, "KAL,%lu,%d,%.2f,%.3f,%.2f,%d\n", static_cast<unsigned long>(t_ms), id,
+                     static_cast<double>(signal), static_cast<double>(slope), static_cast<double>(sigma), age_ds);
+    return esito(w, cap);
+}
+
+size_t csv_det(char* buf, size_t cap, uint32_t t_ms, DetVersion v, DetKind kind, bool start, int id,
+               float r) {
+    static const char* const KIND[] = {"pre", "perso", "sorda"};
+    char r_txt[16] = "";
+    if (kind != DetKind::Deaf) snprintf(r_txt, sizeof(r_txt), "%.2f", static_cast<double>(r));
+    int w = snprintf(buf, cap, "DET,%lu,%s,%s,%s,%d,%s\n", static_cast<unsigned long>(t_ms),
+                     v == DetVersion::Gnss ? "gnss" : "base", KIND[static_cast<int>(kind)],
+                     start ? "inizio" : "fine", id, r_txt);
+    return esito(w, cap);
+}
+
+size_t csv_tel(char* buf, size_t cap, uint32_t t_ms, TelAction action, int id, int t_s, int peer,
+               int queued, int tries) {
+    static const char* const ACTION[] = {"prodotto", "inviato", "confermato", "ricevuto", "coda"};
+    int w = snprintf(buf, cap, "TEL,%lu,%s,%d,%d,%d,%d,%d\n", static_cast<unsigned long>(t_ms),
+                     ACTION[static_cast<int>(action)], id, t_s, peer, queued, tries);
+    return esito(w, cap);
+}
+
+size_t csv_cmd(char* buf, size_t cap, uint32_t t_ms, packets::Cmd cmd, CmdOrigin origin, int seq,
+               int elapsed_ds) {
+    int w = snprintf(buf, cap, "CMD,%lu,%s,%s,%d,%d\n", static_cast<unsigned long>(t_ms),
+                     cmd == packets::Cmd::Start ? "start" : "stop", origin == CmdOrigin::App ? "app" : "radio",
+                     seq, elapsed_ds);
+    return esito(w, cap);
+}
+
+size_t csv_ble(char* buf, size_t cap, uint32_t t_ms, BleEvent event, int detail) {
+    int w = snprintf(buf, cap, "BLE,%lu,%s,%d\n", static_cast<unsigned long>(t_ms),
+                     event == BleEvent::Connected ? "connesso" : "caduto", detail);
     return esito(w, cap);
 }

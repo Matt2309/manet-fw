@@ -1,8 +1,10 @@
 # manet-fw
 
-Firmware di registrazione per la **Heltec Wireless Tracker V1.1** (ESP32-S3FN8), per la
-corsa di test con 3 schede. Le schede non decidono nulla: trasmettono beacon ESP-NOW come
-il Blocco 3 di `manet-sim` e registrano tutto su LittleFS; l'analisi si fa dopo, offline.
+Firmware per la **Heltec Wireless Tracker V1.1** (ESP32-S3FN8). Le schede trasmettono beacon
+ESP-NOW come il Blocco 3 di `manet-sim` e registrano tutto su LittleFS; l'analisi si fa dopo,
+offline. La logica (pacchetti, vicini, ruolo) e' C++ puro in `lib/core`, testata con
+`pio test -e native`; in `src/` restano gli adattatori verso l'hardware. Il firmware e' in
+costruzione per fasi (rilevatore, GNSS, percorso dei dati, BLE): per ora fa quello che si e' detto sopra.
 
 ## Compilare e caricare
 
@@ -21,7 +23,8 @@ ufficiale espressif32 e' ferma al core 2.x. La definizione della scheda e' in
 ## Prima di partire
 
 1. Flash di ogni scheda, lettura del MAC dalla seriale (o dal display, con ID 0).
-2. Aggiungere i tre MAC a `include/nodes.h` e ricaricare: la scheda mostra `ID 1..3`.
+2. Aggiungere i MAC a `include/nodes.h` (ID 1..20) e ricaricare: la scheda mostra il suo `ID`.
+   Il ruolo (corridore o capogruppo) non sta in `nodes.h`: vedi sotto.
 3. Parametri (canale, potenza, periodo, soglie) in `include/config.h`.
 4. `BAT_CAL` in `config.h` va tarato con un multimetro sulla batteria.
 
@@ -32,7 +35,13 @@ La registrazione parte da sola all'accensione, su un nuovo `/run_NNN.csv`.
 | Tasto USER | Effetto |
 |---|---|
 | pressione breve (< 1 s) | riga `EVT` numerata, il LED lampeggia |
-| pressione lunga (3 s) | flush e chiusura, display `SALVATO`; un'altra pressione lunga apre un nuovo file |
+| pressione lunga (3 s), nei primi 10 s dopo l'accensione | alterna `CORR`/`CAPO` e lo salva in NVS |
+| pressione lunga (3 s), dopo | flush e chiusura, display `SALVATO`; un'altra pressione lunga apre un nuovo file |
+
+Il ruolo resta quello salvato anche dopo un riavvio (alla prima accensione e' `CORR`) e si cambia
+solo prima dello START. Non tenere premuto il tasto durante l'accensione: GPIO0 e' il pin di avvio.
+Sul display la riga 3 mostra, nella finestra dei 10 s, `premi a lungo=ruolo`; poi i salti dal
+capogruppo e i compagni sentiti; un capogruppo che sente un altro capogruppo mostra `DUE CAPOGRUPPO`.
 
 Da fermo i beacon continuano a partire, cosi' le altre schede non vedono perdite fittizie.
 Sotto il 5% di spazio libero la scheda smette di scrivere e mostra `MEMORIA PIENA`
@@ -73,20 +82,30 @@ Stampa le statistiche per coppia e per scheda e l'allineamento sull'UTC del GPS,
 
 ## Formato dei file
 
-Prima riga `# ...` con versione, id, MAC, canale, potenza, periodo. Poi righe CSV, il primo
-campo e' il tipo e il secondo `t_ms` (`millis()` della scheda):
+Prima riga `# ...` con versione, id, ruolo, MAC, canale, potenza, periodo, protocollo; poi tre righe
+`# param ...` con i parametri di `config.h`. Poi righe CSV, il primo campo e' il tipo e il secondo
+`t_ms` (`millis()` della scheda):
 
 ```
 TX,t_ms,seq
-RX,t_ms,src,seq,rssi,tab        tab = id:rssi:eta:varianza;...  (eta' in 0,1 s, varianza 255 = n.d.)
+RX,t_ms,src,seq,rssi,tab,salti,t_s,stato   tab = id:segnale:eta:incertezza:pendenza;...  (eta' in 0,1 s, incertezza 255 = n.d.)
+                                           t_s vuoto = corsa non avviata; con LOG_RX_REDUCED solo fino a rssi, tab vuoto
 GPS,t_ms,utc,lat,lon,alt,vel_kmh,rotta,hdop,sat,fix     1 Hz, fix 0/2/3; senza fix i campi sono vuoti
 EVT,t_ms,n
 BAT,t_ms,mV                     ogni 30 s
 SYS,t_ms,messaggio
+KAL,t_ms,id,segnale,pendenza,incertezza,eta                stime del Kalman (dalla fase 2)
+DET,t_ms,versione,tipo,inizio|fine,id,R                    decisioni del rilevatore (dalla fase 2)
+TEL,t_ms,azione,id,t_s,compagno,n_coda,tentativi           telemetria (dalla fase 4)
+CMD,t_ms,comando,origine,seq,decimi                        START e STOP (dalla fase 4)
+BLE,t_ms,evento,dettaglio                                  connessioni e cadute, solo capogruppo (fase 5)
 ```
 
-Beacon (little-endian): `magic 0x4D, versione 1, id, seq u32, n vicini`, poi per ogni
-vicino `id, rssi i8, eta u8, varianza u8`.
+Pacchetti (little-endian, packed, al massimo 250 byte): intestazione comune di 4 byte
+`0x4D, versione del protocollo (2), tipo (1 beacon, 2 telemetria, 3 allarme, 4 comando), ID mittente`;
+i pacchetti con intestazione sbagliata vengono scartati. Beacon: `seq u16, salti u8, t_s u16, stato u8,
+n u8, [posizione 9], n x (id, segnale, pendenza, incertezza, eta')`. Il layout completo e'
+documentato in `lib/core/packets.h`.
 
 ## Note sulle scelte
 
