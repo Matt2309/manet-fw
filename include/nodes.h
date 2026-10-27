@@ -1,4 +1,4 @@
-// Tabella MAC -> ID del nodo (1..3).
+// Tabella MAC -> ID del nodo (1..MAX_NODES).
 //
 // Il MAC e' quello della interfaccia Wi-Fi STA, stampato all'avvio sulla seriale
 // e mostrato sul display quando l'ID e' 0 (scheda non in tabella).
@@ -6,6 +6,8 @@
 #pragma once
 
 #include <stdint.h>
+
+#include "config.h"
 
 struct NodeEntry {
     uint8_t mac[6];
@@ -18,6 +20,10 @@ static const NodeEntry NODES[] = {
     {{0xAC, 0xA7, 0x04, 0x3C, 0x3D, 0x90}, 3},
     {{0, 0, 0, 0, 0, 0}, 0},  // terminatore: non togliere
 };
+
+// Il ruolo (corridore o capogruppo) non sta qui: si sceglie con il tasto USER e si salva in NVS.
+// Con 20 righe piu' il terminatore la tabella e' al massimo.
+static_assert(sizeof(NODES) / sizeof(NODES[0]) <= MAX_NODES + 1, "troppe righe in NODES");
 
 // ID del nodo dal MAC; 0 se il MAC non e' in tabella.
 inline uint8_t node_id_from_mac(const uint8_t mac[6]) {
