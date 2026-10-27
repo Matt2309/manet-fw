@@ -1,0 +1,52 @@
+// Stato della logica di una scheda, senza hardware: vicini, ruolo, beacon da mandare.
+//
+// Appartiene a un solo task; il tempo entra come parametro (millisecondi dall'accensione).
+#pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include "neighbors.h"
+#include "packets.h"
+#include "role.h"
+
+// Copia dello stato per chi lo mostra (display).
+struct NodeStatus {
+    uint8_t id;
+    Role role;
+    uint8_t hops;         // salti dal capogruppo, HOPS_ISOLATED se nessuno
+    uint8_t heard;        // compagni sentiti di recente
+    bool run_started;
+    bool two_leaders;     // capogruppo che sente un altro capogruppo prima dello START
+};
+
+class Node {
+public:
+    Node(uint8_t id, Role role) : id_(id), role_(role) {}
+
+    // Elabora un pacchetto ricevuto. Scarta intestazioni sbagliate, mittenti non validi
+    // e i propri pacchetti. true (e b riempito) solo per un beacon accettato; gli altri
+    // tipi arrivano dalle fasi successive.
+    bool on_packet(const uint8_t* data, size_t len, int8_t rssi, uint32_t now_ms, packets::Beacon& b);
+
+    // Prepara il prossimo beacon; sent e' la copia decodificata, per il registro.
+    // Restituisce i byte scritti in out.
+    size_t build_beacon(uint32_t now_ms, int battery_pct, uint8_t* out, size_t cap, packets::Beacon& sent);
+
+    // Alterna il ruolo se la regola lo permette.
+    bool toggle_role(uint32_t now_ms);
+
+    Role role() const { return role_; }
+    NodeStatus status(uint32_t now_ms) const;
+
+private:
+    uint8_t hops() const;
+
+    uint8_t id_;
+    Role role_;
+    uint16_t seq_ = 0;
+    NeighborTable table_;
+    bool leader_seen_ = false;
+    uint32_t leader_seen_ms_ = 0;
+    bool run_started_ = false;  // lo fissa START, dalla fase 4
+};

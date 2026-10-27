@@ -13,6 +13,7 @@
 #include "config.h"
 #include "crc32.h"
 #include "logger.h"
+#include "logic.h"
 #include "runfile.h"
 
 namespace {
@@ -87,8 +88,10 @@ const char* state_name(logger::State s) {
 }
 
 void cmd_info() {
-    reply("INFO id=%d mac=%s fw=%s file=%s state=%s", g_node.id, g_node.mac_str, FW_VERSION,
-          logger::current_path(), state_name(logger::state()));
+    NodeStatus st = {};
+    logic_status(st);
+    reply("INFO id=%d mac=%s fw=%s file=%s state=%s ruolo=%s", g_node.id, g_node.mac_str, FW_VERSION,
+          logger::current_path(), state_name(logger::state()), role_name(st.role));
 }
 
 void cmd_ls() {

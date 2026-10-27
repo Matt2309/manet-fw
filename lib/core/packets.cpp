@@ -80,6 +80,14 @@ size_t beacon_size(uint8_t n, bool has_pos) {
     return BEACON_FIXED + (has_pos ? POS_SIZE : 0) + static_cast<size_t>(n) * ENTRY_SIZE;
 }
 
+uint8_t beacon_status(const Beacon& b) {
+    uint8_t status = b.battery > BATTERY_MAX ? BATTERY_MAX : b.battery;
+    if (b.stopped) status |= STATUS_STOPPED;
+    if (b.sos) status |= STATUS_SOS;
+    if (b.has_pos) status |= STATUS_POS;
+    return status;
+}
+
 size_t pack_beacon(const Beacon& b, uint8_t* out, size_t cap) {
     if (b.n > MAX_NEIGHBORS) return 0;
     size_t size = beacon_size(b.n, b.has_pos);
@@ -89,11 +97,7 @@ size_t pack_beacon(const Beacon& b, uint8_t* out, size_t cap) {
     put16(out + 4, b.seq);
     out[6] = b.hops;
     put16(out + 7, b.t_s);
-    uint8_t status = b.battery > BATTERY_MAX ? BATTERY_MAX : b.battery;
-    if (b.stopped) status |= STATUS_STOPPED;
-    if (b.sos) status |= STATUS_SOS;
-    if (b.has_pos) status |= STATUS_POS;
-    out[9] = status;
+    out[9] = beacon_status(b);
     out[10] = b.n;
     uint8_t* p = out + BEACON_FIXED;
     if (b.has_pos) {

@@ -9,7 +9,7 @@ bool NeighborTable::update(uint8_t id, int8_t rssi, uint32_t now_ms) {
             return true;
         }
     }
-    if (n_ >= beacon::MAX_NEIGHBORS) return false;
+    if (n_ >= packets::MAX_NEIGHBORS) return false;
     s_[n_] = Neighbor{id, rssi, now_ms, 1};
     n_++;
     return true;
@@ -22,7 +22,15 @@ const Neighbor* NeighborTable::find(uint8_t id) const {
     return nullptr;
 }
 
-uint8_t NeighborTable::fill_entries(uint8_t self_id, uint32_t now_ms, beacon::Entry* out) const {
+uint8_t NeighborTable::heard(uint32_t now_ms, uint32_t window_ms) const {
+    uint8_t count = 0;
+    for (size_t i = 0; i < n_; i++) {
+        if (now_ms - s_[i].last_ms <= window_ms) count++;
+    }
+    return count;
+}
+
+uint8_t NeighborTable::fill_entries(uint8_t self_id, uint32_t now_ms, packets::BeaconEntry* out) const {
     uint8_t count = 0;
     // Ordine di id crescente: si estrae ogni volta il minimo maggiore dell'ultimo.
     int last = -1;
@@ -33,9 +41,8 @@ uint8_t NeighborTable::fill_entries(uint8_t self_id, uint32_t now_ms, beacon::En
             if (best == nullptr || s_[i].id < best->id) best = &s_[i];
         }
         if (best == nullptr) break;
-        out[count++] = beacon::Entry{best->id, best->rssi,
-                                     beacon::age_ds(now_ms - best->last_ms),
-                                     beacon::VARIANCE_NA};
+        out[count++] = packets::BeaconEntry{best->id, best->rssi, 0, packets::SIGMA_NA,
+                                            packets::age_ds(now_ms - best->last_ms)};
         last = best->id;
     }
     return count;

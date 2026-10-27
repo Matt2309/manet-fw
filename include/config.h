@@ -38,6 +38,7 @@ constexpr uint32_t SPACE_CHECK_INTERVAL_MS = 5000;
 constexpr int FREE_SPACE_MIN_PCT = 5;
 constexpr int EVENT_QUEUE_LEN = 256;
 constexpr int LOG_BUFFER_BYTES = 16384;
+constexpr int LOG_LINE_BYTES = 512;  // una riga RX con 19 vicini ne occupa circa 450
 // true: le righe RX dei beacon ricevuti perdono la tabella dei vicini e le colonne
 // aggiunte (per i gruppi grandi, dove il registro si riempirebbe presto).
 constexpr bool LOG_RX_REDUCED = false;

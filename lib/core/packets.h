@@ -76,6 +76,8 @@ struct Beacon {
 };
 
 size_t beacon_size(uint8_t n, bool has_pos);
+// Byte "stato" del beacon: batteria, corsa ferma, SOS, posizione presente.
+uint8_t beacon_status(const Beacon& b);
 // Byte scritti; 0 se cap non basta o n e' fuori limite.
 size_t pack_beacon(const Beacon& b, uint8_t* out, size_t cap);
 // false se intestazione, tipo o lunghezza non tornano.

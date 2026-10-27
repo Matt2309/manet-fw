@@ -40,7 +40,11 @@ struct HeaderInfo {
     char mac[18] = "";
     int power_qdbm = 0;
     char rate[16] = "";
+    char role[8] = "";
 } g_hdr;
+
+// Posizione di "ruolo=XXXX" nell'intestazione del file aperto, per riscriverlo.
+long g_role_offset = -1;
 
 void full_path(const char* path, char* out, size_t cap) { snprintf(out, cap, "%s%s", MOUNT, path); }
 
@@ -70,15 +74,14 @@ void append_sys_locked(uint32_t t_ms, const char* msg) {
 }
 
 void process_event_locked(const LogEvent& e) {
-    char line[256];
+    char line[LOG_LINE_BYTES];
     size_t n = 0;
     switch (e.type) {
         case LogEventType::Tx:
             n = csv_tx(line, sizeof(line), e.t_ms, e.u.tx.seq);
             break;
         case LogEventType::Rx:
-            n = csv_rx(line, sizeof(line), e.t_ms, e.u.rx.src, e.u.rx.seq, e.u.rx.rssi, e.u.rx.tab,
-                       e.u.rx.n);
+            n = csv_rx(line, sizeof(line), e.t_ms, e.u.rx.b, e.u.rx.rssi, LOG_RX_REDUCED);
             break;
         case LogEventType::Gps:
             n = csv_gps(line, sizeof(line), e.t_ms, e.u.gps);
@@ -166,7 +169,8 @@ bool init() {
     return true;
 }
 
-void set_header_info(int id, const char* mac, int power_qdbm, const char* rate) {
+void set_header_info(int id, const char* mac, int power_qdbm, const char* rate, const char* role) {
+    snprintf(g_hdr.role, sizeof(g_hdr.role), "%s", role);
     g_hdr.id = id;
     snprintf(g_hdr.mac, sizeof(g_hdr.mac), "%s", mac);
     g_hdr.power_qdbm = power_qdbm;
@@ -204,8 +208,11 @@ bool open_new() {
             snprintf(g_name, sizeof(g_name), "run_%03d", n);
             g_len = 0;
             char hdr[256];
-            size_t h = csv_header(hdr, sizeof(hdr), FW_VERSION, g_hdr.id, g_hdr.mac, RADIO_CHANNEL,
-                                  g_hdr.power_qdbm, BEACON_PERIOD_MS, BEACON_JITTER_MS, g_hdr.rate);
+            size_t h = csv_header(hdr, sizeof(hdr), FW_VERSION, g_hdr.id, g_hdr.role, g_hdr.mac,
+                                  RADIO_CHANNEL, g_hdr.power_qdbm, BEACON_PERIOD_MS, BEACON_JITTER_MS,
+                                  g_hdr.rate, PROTO_VERSION);
+            const char* r = strstr(hdr, "ruolo=");
+            g_role_offset = r != nullptr ? static_cast<long>(r - hdr) + 6 : -1;
             append_locked(hdr, h);
             flush_locked();
             g_last_flush = g_last_space_check = millis();
@@ -222,6 +229,23 @@ bool open_new() {
     }
     xSemaphoreGive(g_mutex);
     return ok;
+}
+
+void set_role(const char* role) {
+    xSemaphoreTake(g_mutex, portMAX_DELAY);
+    snprintf(g_hdr.role, sizeof(g_hdr.role), "%s", role);
+    // I due nomi hanno la stessa lunghezza: basta sovrascrivere i caratteri. Il resto del
+    // buffer va su flash prima, cosi' l'intestazione e' gia' scritta.
+    if (g_state == State::Recording && g_file != nullptr && g_role_offset >= 0 && strlen(role) == 4) {
+        flush_locked();
+        if (fseek(g_file, g_role_offset, SEEK_SET) == 0) {
+            fwrite(role, 1, 4, g_file);
+            fflush(g_file);
+            fsync(fileno(g_file));
+        }
+        fseek(g_file, 0, SEEK_END);
+    }
+    xSemaphoreGive(g_mutex);
 }
 
 void start_task() { xTaskCreatePinnedToCore(writer_task, "logger", 6144, nullptr, 2, nullptr, 1); }

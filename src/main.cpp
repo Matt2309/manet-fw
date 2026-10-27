@@ -1,7 +1,7 @@
-// manet-fw — firmware di registrazione per la Heltec Wireless Tracker V1.1.
+// manet-fw — firmware per la Heltec Wireless Tracker V1.1.
 //
-// La scheda non decide nulla: trasmette beacon ESP-NOW come nel simulatore
-// (Blocco 3) e registra tutto su LittleFS per l'analisi offline.
+// Trasmette beacon ESP-NOW come nel simulatore (Blocco 3) e registra tutto su LittleFS
+// per l'analisi offline. La logica sta in lib/core; qui si avviano i task.
 
 #include <Arduino.h>
 #include <esp_mac.h>
@@ -13,6 +13,7 @@
 #include "console.h"
 #include "gnss.h"
 #include "logger.h"
+#include "logic.h"
 #include "lora_sleep.h"
 #include "nodes.h"
 #include "pins.h"
@@ -63,8 +64,9 @@ void setup() {
     radio::Info rinfo;
     bool radio_ok = radio::init(rinfo);
 
+    Role role = logic_init();
     const char* rate = rinfo.rate_ok ? "11b_1M" : "ERRORE";
-    logger::set_header_info(g_node.id, g_node.mac_str, rinfo.power_qdbm, rate);
+    logger::set_header_info(g_node.id, g_node.mac_str, rinfo.power_qdbm, rate, role_name(role));
     if (fs_ok && logger::open_new()) {
         dbg("registrazione su %s", logger::current_path());
         logger::post_sys("%s", lora_msg);
@@ -74,6 +76,7 @@ void setup() {
                              rinfo.power_qdbm);
         }
         if (!rinfo.rate_ok) logger::post_sys("velocita non applicata err=%d", rinfo.rate_err);
+        logger::post_sys("peer %d velocita fissata, falliti %d", rinfo.peers, rinfo.peers_failed);
     } else {
         dbg("ERRORE: file system o apertura del file falliti");
     }
@@ -82,7 +85,10 @@ void setup() {
     logger::start_task();
     ui_start();
     gnss_start();
-    if (radio_ok) radio::start(g_node.id);
+    if (radio_ok) {
+        radio::start();
+        logic_start();
+    }
 }
 
 void loop() {

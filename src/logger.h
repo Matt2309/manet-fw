@@ -9,7 +9,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
-#include "beacon.h"
+#include "packets.h"
 #include "nmea.h"
 
 enum class LogEventType : uint8_t { Tx, Rx, Gps, Evt, Bat, Sys };
@@ -22,11 +22,8 @@ struct LogEvent {
             uint32_t seq;
         } tx;
         struct {
-            uint8_t src;
-            uint32_t seq;
             int8_t rssi;
-            uint8_t n;
-            beacon::Entry tab[beacon::MAX_NEIGHBORS];
+            packets::Beacon b;
         } rx;
         GpsEpoch gps;
         struct {
@@ -53,7 +50,11 @@ enum class State : uint8_t {
 bool init();
 
 // Dati per l'intestazione del file.
-void set_header_info(int id, const char* mac, int power_qdbm, const char* rate);
+void set_header_info(int id, const char* mac, int power_qdbm, const char* rate, const char* role);
+
+// Cambio di ruolo (nella finestra dopo l'accensione): riscrive il ruolo nell'intestazione del
+// file aperto e nei file che si apriranno. role ha sempre 4 caratteri ("CORR" o "CAPO").
+void set_role(const char* role);
 
 // Apre il primo /run_NNN.csv libero e scrive l'intestazione. State -> Recording.
 bool open_new();

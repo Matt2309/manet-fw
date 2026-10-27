@@ -11,8 +11,9 @@
 #include "button.h"
 #include "config.h"
 #include "logger.h"
+#include "logic.h"
 #include "pins.h"
-#include "radio.h"
+#include "role.h"
 
 // Pannello ST7735S 160x80 della Wireless Tracker V1.1. Offset e inversione dal
 // driver Heltec (HT_st7735.h: XSTART 1, YSTART 26, INVON); in verticale
@@ -51,6 +52,8 @@ public:
         setPanel(&panel_);
     }
 };
+
+volatile int g_battery_pct = 0;
 
 namespace {
 
@@ -93,18 +96,13 @@ void draw_row(int row, const char* s) {
     g_spr.print(s);
 }
 
-// Formato "N1-58 412": ultimo RSSI e pacchetti ricevuti dal vicino.
-void neighbor_text(const NeighborTable& t, uint8_t id, char* out, size_t cap) {
-    const Neighbor* n = t.find(id);
-    if (n == nullptr) {
-        snprintf(out, cap, "N%d -- 0", id);
-    } else {
-        snprintf(out, cap, "N%d%d %lu", id, n->rssi, static_cast<unsigned long>(n->count));
-    }
-}
+// Segnala la pressione lunga come cambio di ruolo solo nella finestra dopo l'accensione.
+bool in_role_window(const NodeStatus& st, uint32_t now) { return role_can_toggle(now, st.run_started); }
 
 void draw_display(uint32_t now, bool blink_on) {
     char s[48];
+    NodeStatus ns = {};
+    logic_status(ns);
     g_spr.fillSprite(TFT_BLACK);
     g_spr.setTextColor(TFT_WHITE, TFT_BLACK);
 
@@ -114,7 +112,7 @@ void draw_display(uint32_t now, bool blink_on) {
         snprintf(s, sizeof(s), "ID 0 %s", g_node.mac_str);
     } else {
         const char* name = logger::current_name();
-        snprintf(s, sizeof(s), "ID %d %s %02lu:%02lu", g_node.id, name[0] ? name : "---",
+        snprintf(s, sizeof(s), "ID %d %s %s %02lu:%02lu", g_node.id, role_name(ns.role), name[0] ? name : "---",
                  static_cast<unsigned long>(sec / 60), static_cast<unsigned long>(sec % 60));
     }
     draw_row(0, s);
@@ -136,19 +134,15 @@ void draw_display(uint32_t now, bool blink_on) {
         draw_row(2, "MEMORIA PIENA");
     } else if (st == logger::State::Error) {
         draw_row(2, "ERRORE FILE");
+    } else if (ns.two_leaders) {
+        draw_row(2, "DUE CAPOGRUPPO");
+    } else if (in_role_window(ns, now)) {
+        draw_row(2, "premi a lungo=ruolo");
     } else {
-        NeighborTable t;
-        radio::snapshot(t);
-        // I due vicini diversi da me tra 1, 2 e 3.
-        uint8_t ids[2];
-        int k = 0;
-        for (uint8_t id = 1; id <= 3 && k < 2; id++) {
-            if (id != g_node.id) ids[k++] = id;
-        }
-        char a[20], b[20];
-        neighbor_text(t, ids[0], a, sizeof(a));
-        neighbor_text(t, ids[1], b, sizeof(b));
-        snprintf(s, sizeof(s), "%s %s", a, b);
+        // Salti dal capogruppo e compagni sentiti di recente.
+        char salti[8] = "--";
+        if (ns.hops != packets::HOPS_ISOLATED) snprintf(salti, sizeof(salti), "%d", ns.hops);
+        snprintf(s, sizeof(s), "PRONTA salti %s vicini %d", salti, ns.heard);
         draw_row(2, s);
     }
 
@@ -177,6 +171,12 @@ void on_short_press() {
 }
 
 void on_long_press() {
+    NodeStatus st = {};
+    logic_status(st);
+    if (in_role_window(st, millis())) {
+        logic_toggle_role();
+        return;
+    }
     if (logger::state() == logger::State::Recording) {
         logger::save_and_close("pressione lunga");
         dbg("file chiuso");
@@ -201,6 +201,7 @@ void ui_task(void*) {
         if (static_cast<int32_t>(now - next_bat) >= 0) {
             next_bat = now + 1000;
             g_bat.add(read_battery_mv());
+            g_battery_pct = battery_percent(g_bat.average_mv());
         }
         if (static_cast<int32_t>(now - next_bat_log) >= 0) {
             next_bat_log = now + BAT_LOG_INTERVAL_MS;
@@ -236,6 +237,7 @@ void ui_start() {
     for (int i = 0; i < BatteryAverage::N; i++) {
         g_bat.add(read_battery_mv());
     }
+    g_battery_pct = battery_percent(g_bat.average_mv());
 
     pinMode(pins::tft_backlight, OUTPUT);
     digitalWrite(pins::tft_backlight, HIGH);
