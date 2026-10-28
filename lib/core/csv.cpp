@@ -30,12 +30,18 @@ size_t csv_params(char* buf, size_t cap) {
                      "# param flush_ms=%lu bat_log_ms=%lu spazio_min_pct=%d coda_log=%d buffer_log=%d "
                      "riga_log=%d rx_ridotta=%d\n"
                      "# param tasto_debounce_ms=%lu tasto_breve_max_ms=%lu tasto_lungo_ms=%lu display_ms=%lu "
-                     "bat_bassa_pct=%d bat_cal=%.3f\n",
+                     "bat_bassa_pct=%d bat_cal=%.3f\n"
+                     "# param kalman_sigma_a=%.3f kalman_r=%.2f kalman_pendenza0=%.1f kalman_riavvio_ms=%lu "
+                     "fusione_eta_ms=%lu pre_dbm=%.1f pre_min_ms=%lu rilascio_margine_db=%.1f rilascio_ms=%lu "
+                     "rilascio_ricezione=%.2f perso_ms=%lu kal_log_ms=%lu\n",
                      PROTO_VERSION, MAX_NODES, u(LOGIC_TICK_MS), RX_QUEUE_LEN, u(HEARD_WINDOW_MS),
                      u(LEADER_CONFLICT_MS), u(ROLE_WINDOW_MS), u(FLUSH_INTERVAL_MS), u(BAT_LOG_INTERVAL_MS),
                      FREE_SPACE_MIN_PCT, EVENT_QUEUE_LEN, LOG_BUFFER_BYTES, LOG_LINE_BYTES,
                      LOG_RX_REDUCED ? 1 : 0, u(BTN_DEBOUNCE_MS), u(BTN_SHORT_MAX_MS), u(BTN_LONG_MS),
-                     u(DISPLAY_PERIOD_MS), BAT_LOW_PCT, static_cast<double>(BAT_CAL));
+                     u(DISPLAY_PERIOD_MS), BAT_LOW_PCT, static_cast<double>(BAT_CAL), KALMAN_SIGMA_A, KALMAN_R,
+                     KALMAN_INITIAL_SLOPE_STD, u(KALMAN_REINIT_GAP_MS), u(FUSION_MAX_AGE_MS), PRE_ALARM_DBM,
+                     u(PRE_ALARM_MIN_MS), RELEASE_MARGIN_DB, u(RELEASE_TIME_MS), RELEASE_RECEPTION,
+                     u(LOST_SILENCE_MS), u(KAL_LOG_PERIOD_MS));
     return esito(w, cap);
 }
 
@@ -127,7 +133,7 @@ size_t csv_det(char* buf, size_t cap, uint32_t t_ms, DetVersion v, DetKind kind,
                float r) {
     static const char* const KIND[] = {"pre", "perso", "sorda"};
     char r_txt[16] = "";
-    if (kind != DetKind::Deaf) snprintf(r_txt, sizeof(r_txt), "%.2f", static_cast<double>(r));
+    if (kind == DetKind::PreAlarm) snprintf(r_txt, sizeof(r_txt), "%.2f", static_cast<double>(r));
     int w = snprintf(buf, cap, "DET,%lu,%s,%s,%s,%d,%s\n", static_cast<unsigned long>(t_ms),
                      v == DetVersion::Gnss ? "gnss" : "base", KIND[static_cast<int>(kind)],
                      start ? "inizio" : "fine", id, r_txt);

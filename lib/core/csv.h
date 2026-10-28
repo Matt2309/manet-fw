@@ -23,8 +23,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "packets.h"
+#include "detector.h"
 #include "nmea.h"
+#include "packets.h"
 
 size_t csv_header(char* buf, size_t cap, const char* fw, int id, const char* role,
                   const char* mac, int channel, int power_qdbm, int period_ms, int jitter_ms,
@@ -40,7 +41,6 @@ size_t csv_bat(char* buf, size_t cap, uint32_t t_ms, int mv);
 size_t csv_sys(char* buf, size_t cap, uint32_t t_ms, const char* msg);
 
 enum class DetVersion : uint8_t { Base, Gnss };       // rilevatore senza o con GNSS
-enum class DetKind : uint8_t { PreAlarm, Lost, Deaf };
 enum class TelAction : uint8_t { Produced, Sent, Confirmed, Received, Queued };
 enum class CmdOrigin : uint8_t { App, Radio };
 enum class BleEvent : uint8_t { Connected, Dropped };
@@ -48,7 +48,7 @@ enum class BleEvent : uint8_t { Connected, Dropped };
 // age_ds in decimi di secondo; sigma e' la deviazione standard in dB.
 size_t csv_kal(char* buf, size_t cap, uint32_t t_ms, int id, float signal, float slope, float sigma,
                int age_ds);
-// r e' il segnale fuso del compagno; vuoto per la scheda sorda (id = 0).
+// r e' il segnale fuso del compagno; scritto solo per il pre-allarme.
 size_t csv_det(char* buf, size_t cap, uint32_t t_ms, DetVersion v, DetKind kind, bool start, int id,
                float r);
 // peer = compagno scelto (0 se nessuno), queued = record in coda, tries = tentativi dell'invio.

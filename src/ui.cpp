@@ -142,6 +142,9 @@ void draw_display(uint32_t now, bool blink_on) {
         snprintf(s, sizeof(s), "premi 3s=ruolo (%lus)",
                  static_cast<unsigned long>((ROLE_WINDOW_MS - now + 999) / 1000));
         draw_row(2, s);
+    } else if (ns.pre > 0 || ns.lost > 0) {
+        snprintf(s, sizeof(s), "PRE %d PERSI %d", ns.pre, ns.lost);
+        draw_row(2, s);
     } else {
         // Salti dal capogruppo e compagni sentiti di recente.
         char salti[8] = "--";

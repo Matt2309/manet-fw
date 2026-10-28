@@ -97,11 +97,14 @@ void test_params() {
         righe++;
         p = nl + 1;
     }
-    TEST_ASSERT_EQUAL(3, righe);
+    TEST_ASSERT_EQUAL(4, righe);
     TEST_ASSERT_NOT_NULL(strstr(b, "proto=2 "));
     TEST_ASSERT_NOT_NULL(strstr(b, "tick_ms=100 "));
     TEST_ASSERT_NOT_NULL(strstr(b, "rx_ridotta=0\n"));
     TEST_ASSERT_NOT_NULL(strstr(b, "tasto_lungo_ms=3000 "));
+    TEST_ASSERT_NOT_NULL(strstr(b, "kalman_r=10.84 "));
+    TEST_ASSERT_NOT_NULL(strstr(b, "pre_dbm=-93.0 "));
+    TEST_ASSERT_NOT_NULL(strstr(b, "rilascio_ricezione=0.80 "));
     TEST_ASSERT_EQUAL(0, csv_params(b, 20));
 }
 
@@ -110,12 +113,12 @@ void test_righe_nuove() {
     csv_kal(b, sizeof(b), 2000, 3, -71.256f, -0.5f, 2.5f, 4);
     TEST_ASSERT_EQUAL_STRING("KAL,2000,3,-71.26,-0.500,2.50,4\n", b);
 
-    csv_det(b, sizeof(b), 9000, DetVersion::Base, DetKind::PreAlarm, true, 3, -93.4f);
+    csv_det(b, sizeof(b), 9000, DetVersion::Base, DetKind::PreAlarm, true, 3, -93.4);
     TEST_ASSERT_EQUAL_STRING("DET,9000,base,pre,inizio,3,-93.40\n", b);
-    csv_det(b, sizeof(b), 9500, DetVersion::Gnss, DetKind::Lost, false, 3, -97.0f);
-    TEST_ASSERT_EQUAL_STRING("DET,9500,gnss,perso,fine,3,-97.00\n", b);
-    csv_det(b, sizeof(b), 9600, DetVersion::Base, DetKind::Deaf, true, 0, 0.0f);
-    TEST_ASSERT_EQUAL_STRING("DET,9600,base,sorda,inizio,0,\n", b);
+    csv_det(b, sizeof(b), 9500, DetVersion::Gnss, DetKind::Lost, false, 3, 0.0);
+    TEST_ASSERT_EQUAL_STRING("DET,9500,gnss,perso,fine,3,\n", b);
+    csv_det(b, sizeof(b), 9600, DetVersion::Base, DetKind::Deaf, true, 3, 0.0);
+    TEST_ASSERT_EQUAL_STRING("DET,9600,base,sorda,inizio,3,\n", b);
 
     csv_tel(b, sizeof(b), 3000, TelAction::Produced, 2, 125, 0, 7, 0);
     TEST_ASSERT_EQUAL_STRING("TEL,3000,prodotto,2,125,0,7,0\n", b);

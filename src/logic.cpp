@@ -70,6 +70,41 @@ void send_beacon(uint32_t now) {
     }
 }
 
+// Decisioni del rilevatore e stime del Kalman nel registro.
+void log_detector(uint32_t now) {
+    static DetEvent events[Detector::MAX_EVENTS];
+    size_t n = g_node_logic->tick(now, events);
+    for (size_t i = 0; i < n; i++) {
+        LogEvent e;
+        memset(&e, 0, sizeof(e));
+        e.type = LogEventType::Det;
+        e.t_ms = events[i].t_ms;
+        e.u.det.version = DetVersion::Base;
+        e.u.det.kind = events[i].kind;
+        e.u.det.start = events[i].start;
+        e.u.det.id = events[i].target;
+        e.u.det.r = static_cast<float>(events[i].r);
+        logger::post(e);
+    }
+}
+
+void log_estimates(uint32_t now) {
+    for (uint8_t id = 1; id <= MAX_NODES; id++) {
+        LinkView v;
+        if (!g_node_logic->estimate(id, now, v)) continue;
+        LogEvent e;
+        memset(&e, 0, sizeof(e));
+        e.type = LogEventType::Kal;
+        e.t_ms = now;
+        e.u.kal.id = id;
+        e.u.kal.signal = static_cast<float>(v.r);
+        e.u.kal.slope = static_cast<float>(v.s);
+        e.u.kal.sigma = static_cast<float>(v.sigma);
+        e.u.kal.age_ds = packets::age_ds(v.age_ms);
+        logger::post(e);
+    }
+}
+
 void toggle_role() {
     uint32_t now = millis();
     if (!g_node_logic->toggle_role(now)) return;
@@ -90,6 +125,7 @@ void logic_task(void*) {
     // Fase iniziale casuale in [0, periodo).
     uint32_t next_beacon = millis() + esp_random() % BEACON_PERIOD_MS;
     uint32_t next_tick = millis() + LOGIC_TICK_MS;
+    uint32_t next_kal = millis() + KAL_LOG_PERIOD_MS;
 
     for (;;) {
         uint32_t now = millis();
@@ -121,7 +157,13 @@ void logic_task(void*) {
         if (due(now, next_tick)) {
             next_tick += LOGIC_TICK_MS;
             if (due(now, next_tick)) next_tick = now + LOGIC_TICK_MS;
+            log_detector(now);
             publish_status(now);
+            if (due(now, next_kal)) {
+                next_kal += KAL_LOG_PERIOD_MS;
+                if (due(now, next_kal)) next_kal = now + KAL_LOG_PERIOD_MS;
+                log_estimates(now);
+            }
             uint32_t dropped = radio::take_dropped();
             if (dropped > 0) logger::post_sys("coda radio piena persi=%lu", static_cast<unsigned long>(dropped));
         }
@@ -145,7 +187,7 @@ Role logic_init() {
     return role;
 }
 
-void logic_start() { xTaskCreatePinnedToCore(logic_task, "logic", 6144, nullptr, configMAX_PRIORITIES - 2, nullptr, 1); }
+void logic_start() { xTaskCreatePinnedToCore(logic_task, "logic", 8192, nullptr, configMAX_PRIORITIES - 2, nullptr, 1); }
 
 void logic_toggle_role() {
     uint8_t cmd = 1;

@@ -95,11 +95,32 @@ GPS,t_ms,utc,lat,lon,alt,vel_kmh,rotta,hdop,sat,fix     1 Hz, fix 0/2/3; senza f
 EVT,t_ms,n
 BAT,t_ms,mV                     ogni 30 s
 SYS,t_ms,messaggio
-KAL,t_ms,id,segnale,pendenza,incertezza,eta                stime del Kalman (dalla fase 2)
-DET,t_ms,versione,tipo,inizio|fine,id,R                    decisioni del rilevatore (dalla fase 2)
+KAL,t_ms,id,segnale,pendenza,incertezza,eta                stima del Kalman per ogni compagno sentito, 1 Hz
+DET,t_ms,versione,tipo,inizio|fine,id,R                    decisioni: tipo pre|perso|sorda, R solo per pre (versione base; gnss dalla fase 3)
 TEL,t_ms,azione,id,t_s,compagno,n_coda,tentativi           telemetria (dalla fase 4)
 CMD,t_ms,comando,origine,seq,decimi                        START e STOP (dalla fase 4)
 BLE,t_ms,evento,dettaglio                                  connessioni e cadute, solo capogruppo (fase 5)
+```
+
+## Rilevatore
+
+Lo stesso di `manet-sim` (`src/kalman.py`, `fusion.py`, `detector.py`), con i parametri di `config.h`
+(tutti scritti nelle righe `# param`): un Kalman per compagno (stato segnale e pendenza, rumore di processo
+0,25 dB/s2, di misura 10,84 dB2), fusione con le stime dei vicini lette dai loro beacon (voci piu' vecchie di
+2 s escluse), pre-allarme con R sotto -93 dBm per 1 s, nodo perso dopo 10 s di silenzio, regola `not_deaf_episode`
+(una scheda che smette di sentire tutti insieme non dichiara persi gli altri; riga `DET ... sorda`).
+Lo spegnimento chiede 30 s con R sopra -90 dBm e almeno 48 beacon su 60 ricevuti dal compagno.
+Il rilevatore gira sempre e registra le decisioni; l'invio degli allarmi arriva con la fase 4.
+
+Sul display, con allarmi attivi, la riga 3 mostra `PRE n PERSI n`.
+
+**Confronto con il simulatore.** `test/test_sim_compare` fa girare 5 `Node` su due corse simulate e confronta
+gli allarmi con quelli del rilevatore Python (stessi episodi, istanti entro 1 tick di 100 ms). Le corse si
+rigenerano con l'ambiente del simulatore, che non viene modificato:
+
+```
+PYTHONDONTWRITEBYTECODE=1 ~/manet-sim/venv/bin/python tools/esporta_sim.py sep  --out test/test_sim_compare/sim_sep.csv
+PYTHONDONTWRITEBYTECODE=1 ~/manet-sim/venv/bin/python tools/esporta_sim.py deaf --out test/test_sim_compare/sim_deaf.csv
 ```
 
 Pacchetti (little-endian, packed, al massimo 250 byte): intestazione comune di 4 byte

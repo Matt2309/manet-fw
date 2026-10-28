@@ -11,6 +11,7 @@ bool Node::on_packet(const uint8_t* data, size_t len, int8_t rssi, uint32_t now_
     if (!packets::unpack_beacon(data, len, b)) return false;
 
     table_.update(sender, rssi, now_ms);
+    detector_.on_beacon(b, rssi, now_ms);
     if (b.hops == 0) {
         leader_seen_ = true;
         leader_seen_ms_ = now_ms;
@@ -30,7 +31,7 @@ size_t Node::build_beacon(uint32_t now_ms, int battery_pct, uint8_t* out, size_t
     sent.hops = hops();
     sent.t_s = packets::T_NOT_STARTED;
     sent.battery = packets::battery_code(battery_pct);
-    sent.n = table_.fill_entries(id_, now_ms, sent.nb);
+    sent.n = detector_.fill_entries(now_ms, sent.nb);
     return packets::pack_beacon(sent, out, cap);
 }
 
@@ -47,6 +48,8 @@ NodeStatus Node::status(uint32_t now_ms) const {
     s.hops = hops();
     s.heard = table_.heard(now_ms, HEARD_WINDOW_MS);
     s.run_started = run_started_;
+    s.pre = detector_.pre_count();
+    s.lost = detector_.lost_count();
     s.two_leaders = role_ == Role::Leader && !run_started_ && leader_seen_ &&
                     now_ms - leader_seen_ms_ <= LEADER_CONFLICT_MS;
     return s;
