@@ -4,6 +4,13 @@
 
 namespace {
 
+// Come una scheda (osservatore) vede un corridore.
+enum Obs : uint8_t { ObsNone = 0, ObsSeen = 1, ObsPre = 2, ObsLost = 3 };
+
+uint8_t obs_from_alarm_code(uint8_t code) {
+    return code == packets::ALARM_LOST ? ObsLost : code == packets::ALARM_PRE ? ObsPre : ObsSeen;
+}
+
 bool newer(uint32_t a, uint32_t b) { return static_cast<int32_t>(a - b) > 0; }
 
 }  // namespace
@@ -79,13 +86,13 @@ void Leader::on_record(const packets::TelRecord& rec, uint32_t now_ms, uint32_t 
     r->sos_seen = rec.sos;
 
     // I flag di allarme di questo osservatore sostituiscono i vecchi: chi non e' nel record non e' piu' riportato.
-    for (uint8_t k = 1; k <= MAX_NODES; k++) rows_[k].obs[rec.id] = 0;
+    for (uint8_t k = 1; k <= MAX_NODES; k++) rows_[k].obs[rec.id] = ObsNone;
     for (uint8_t i = 0; i < rec.n; i++) {
         const packets::TelEntry& e = rec.nb[i];
         Row* target = row(e.id);
         if (target == nullptr || e.id == rec.id) continue;
         target->known = true;
-        target->obs[rec.id] = e.alarm;
+        target->obs[rec.id] = obs_from_alarm_code(e.alarm);
         add_r(*target, now_ms, e.signal);
     }
 }
@@ -97,13 +104,13 @@ void Leader::on_alarm(const packets::Alarm& a, uint32_t now_ms) {
     r->known = true;
     switch (a.type) {
         case packets::AlarmType::PreAlarm:
-            r->obs[a.sender] = packets::ALARM_PRE;
+            r->obs[a.sender] = ObsPre;
             break;
         case packets::AlarmType::Lost:
-            r->obs[a.sender] = packets::ALARM_LOST;
+            r->obs[a.sender] = ObsLost;
             break;
         case packets::AlarmType::End:
-            r->obs[a.sender] = 0;
+            r->obs[a.sender] = ObsSeen;  // l'allarme e' finito: continua a vederlo
             break;
         case packets::AlarmType::Sos:
             r->sos_ms = now_ms;
@@ -120,14 +127,16 @@ bool Leader::observer_valid(uint8_t o, uint32_t now_ms) const {
 
 ble::RunnerState Leader::compute(uint8_t id, uint32_t now_ms) {
     Row& r = rows_[id];
-    int pre_n = 0, lost_n = 0;
+    int seen_n = 0, pre_n = 0, lost_n = 0;
     for (uint8_t o = 1; o <= MAX_NODES; o++) {
-        if (o == id || r.obs[o] == 0 || !observer_valid(o, now_ms)) continue;
-        pre_n++;
-        if (r.obs[o] == packets::ALARM_LOST) lost_n++;
+        if (o == id || r.obs[o] == ObsNone || !observer_valid(o, now_ms)) continue;
+        seen_n++;
+        if (r.obs[o] >= ObsPre) pre_n++;
+        if (r.obs[o] == ObsLost) lost_n++;
     }
-    int need_lost = size() <= 2 ? 1 : LOST_MIN_OBSERVERS;
-    uint8_t level = lost_n >= need_lost ? 2 : (pre_n >= PRE_MIN_OBSERVERS ? 1 : 0);
+    // Il perso si conferma con LOST_MIN_OBSERVERS schede, ma non piu' di quante vedono il corridore.
+    int need_lost = seen_n < LOST_MIN_OBSERVERS ? seen_n : LOST_MIN_OBSERVERS;
+    uint8_t level = (lost_n >= 1 && lost_n >= need_lost) ? 2 : (pre_n >= PRE_MIN_OBSERVERS ? 1 : 0);
     if (level == 0) r.closed_level = 0;           // tornato normale: le chiusure decadono
     if (level <= r.closed_level) level = 0;       // chiuso dall'app
 

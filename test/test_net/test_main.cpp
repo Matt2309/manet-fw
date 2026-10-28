@@ -437,6 +437,19 @@ void test_perso_confermato_da_due_osservatori_evento_e_rientro() {
     TEST_ASSERT_EQUAL(0, state_row(net.msgs(0x01).back(), 3)[1]);
 }
 
+void test_perso_visto_da_un_solo_osservatore_basta_nella_catena() {
+    Net net;                                   // 1 - 2 - 3: il 3 lo vede solo il 2
+    net.run(6000);
+    net.node[1]->start_run(net.now);
+    net.run(10000);
+    net.set_link(2, 3, false);
+    net.run(20000);
+    int lost = 0;
+    for (const BleMsg& m : net.msgs(0x02)) lost += (m.data[10] == 3 && m.data[11] == 1) ? 1 : 0;   // id 3, PERSO
+    TEST_ASSERT_EQUAL(1, lost);
+    TEST_ASSERT_EQUAL(2, state_row(net.msgs(0x01).back(), 3)[1]);
+}
+
 void test_sos_evento_stato_e_chiusura_dall_app() {
     Net net;
     net.run(6000);
@@ -578,6 +591,7 @@ int main() {
     RUN_TEST(test_stato_dopo_lo_start_numera_salva_e_riempie_la_tabella);
     RUN_TEST(test_nuovo_file_a_ogni_start_e_seq_che_riparte);
     RUN_TEST(test_perso_confermato_da_due_osservatori_evento_e_rientro);
+    RUN_TEST(test_perso_visto_da_un_solo_osservatore_basta_nella_catena);
     RUN_TEST(test_sos_evento_stato_e_chiusura_dall_app);
     RUN_TEST(test_comandi_dell_app_e_conferme);
     RUN_TEST(test_riprendi_da_conferma_con_l_ultimo_seq_e_rimanda);

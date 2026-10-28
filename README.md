@@ -72,8 +72,9 @@ Sotto il 5% di spazio libero la scheda smette di scrivere e mostra `MEMORIA PIEN
 
 Il capogruppo tiene una **tabella del gruppo** (una riga per corridore, compreso se stesso, aggiornata da beacon, allarmi e
 telemetria; un corridore sentito resta fino allo STOP) e parla con l'app via BLE. Stato di un corridore, per precedenza:
-SOS, perso, pre-allarme, ok. Il pre-allarme vale con un osservatore; il **perso solo se lo confermano almeno 2 schede** (una
-sola se il gruppo ne ha 2). R e' la media dei segnali fusi riportati negli ultimi 5 s.
+SOS, perso, pre-allarme, ok. Il pre-allarme vale con un osservatore. Il **perso** lo confermano al massimo 2 schede (`LOST_MIN_OBSERVERS`),
+ma non piu' di quante vedono il corridore: se lo vede una sola scheda basta quella; se lo vedono in due e una lo sente bene resta un
+sospetto (pre-allarme). R e' la media dei segnali fusi riportati negli ultimi 5 s.
 
 Chiudere un allarme dall'app resta sul capogruppo: non si ripropone finche' il corridore non torna normale e poi si
 stacca di nuovo (un SOS chiuso, finche' il corridore non smette di segnalarlo). Un allarme che si spegne da solo manda

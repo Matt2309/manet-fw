@@ -101,7 +101,7 @@ constexpr uint32_t OBSERVER_VALID_MS = 30000;     // l'allarme riportato da un o
 constexpr uint32_t SOS_HOLD_MS = SOS_PERIOD_MS * 5 / 2;  // un SOS e' "in corso" finche' l'ultima indicazione e' piu' recente di cosi'
 constexpr uint32_t RECORD_FRESH_S = 5;            // un record piu' vecchio non descrive lo stato di adesso
 constexpr int PRE_MIN_OBSERVERS = 1;              // osservatori per il pre-allarme
-constexpr int LOST_MIN_OBSERVERS = 2;             // osservatori per il nodo perso (1 se il gruppo ha 2 sole schede)
+constexpr int LOST_MIN_OBSERVERS = 2;             // osservatori per il nodo perso, al massimo: non piu' di quante schede vedono il corridore
 constexpr uint32_t STATE_PERIOD_MS = 5000;        // STATO sul BLE
 
 // --- BLE (solo capogruppo) -----------------------------------------------------------------------------------

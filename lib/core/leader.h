@@ -3,7 +3,9 @@
 // Un corridore sentito almeno una volta resta in tabella fino allo STOP (il totale dei corridori e' il numero
 // di righe, compreso il capogruppo). Stato di una riga, per precedenza: SOS, perso, pre-allarme, ok.
 //  - pre-allarme: almeno PRE_MIN_OBSERVERS osservatori lo riportano;
-//  - perso: almeno LOST_MIN_OBSERVERS lo confermano (uno solo se il gruppo ha 2 schede);
+//  - perso: lo confermano tanti osservatori quanti ne ha il corridore, al massimo LOST_MIN_OBSERVERS. Osservatore =
+//    scheda che ha il corridore nella propria tabella dei vicini (anche se lo ha perso): se lo vede una sola scheda,
+//    basta quella; se lo vedono due e una lo sente bene, il sospetto non basta;
 //  - SOS: una volta visto resta finche' non lo si chiude dall'app (anche se il corridore lo annulla).
 // La chiusura di un allarme dall'app resta qui: l'allarme (e quelli piu' lievi) non si ripropone finche' il
 // corridore non torna normale; un SOS chiuso non si ripropone finche' il corridore non smette di segnalarlo.
@@ -66,7 +68,7 @@ private:
         bool battery_known;
         uint8_t battery_pct;
         Bucket r[R_BUCKETS];
-        uint8_t obs[MAX_NODES + 1];  // allarme riportato da ogni osservatore su questo corridore: 0, ALARM_PRE, ALARM_LOST
+        uint8_t obs[MAX_NODES + 1];  // come ogni osservatore vede questo corridore: Obs::None, Seen, Pre, Lost
         uint8_t closed_level;        // allarmi chiusi dall'app: 0 nessuno, 1 pre-allarme, 2 perso (e pre-allarme)
         uint32_t sos_ms;
         bool sos_seen;

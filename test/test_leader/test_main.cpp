@@ -128,13 +128,22 @@ void test_pre_allarme_e_rientro() {
     TEST_ASSERT_EQUAL(1, b.count(ble::EventType::Return, 2));
 }
 
-void test_il_perso_ha_bisogno_di_due_osservatori() {
+void test_con_un_solo_osservatore_basta_una_conferma() {
+    Bench b;
+    b.record(3, {{2, packets::ALARM_LOST}});   // solo il 3 ha il corridore 2 nella tabella
+    b.run(1000);
+    TEST_ASSERT_EQUAL(ble::RunnerState::Lost, b.state(2));
+    TEST_ASSERT_EQUAL(1, b.count(ble::EventType::Lost, 2));
+}
+
+void test_due_osservatori_uno_lo_sente_bene_resta_sospetto() {
     Bench b;
     b.record(3, {{2, packets::ALARM_LOST}});
+    b.record(4, {{2, 0}});                     // il 4 lo vede, senza allarme
     b.run(1000);
-    TEST_ASSERT_EQUAL(ble::RunnerState::PreAlarm, b.state(2));    // uno solo: resta un sospetto
+    TEST_ASSERT_EQUAL(ble::RunnerState::PreAlarm, b.state(2));    // non basta il solo sospetto del 3
     TEST_ASSERT_EQUAL(0, b.count(ble::EventType::Lost, 2));
-    b.alarm(4, 2, packets::AlarmType::Lost);                      // il secondo
+    b.alarm(4, 2, packets::AlarmType::Lost);                      // ora lo conferma anche il 4
     b.run(1000);
     TEST_ASSERT_EQUAL(ble::RunnerState::Lost, b.state(2));
     TEST_ASSERT_EQUAL(1, b.count(ble::EventType::Lost, 2));
@@ -155,14 +164,15 @@ void test_con_due_schede_basta_una() {
 void test_osservatore_silenzioso_non_conta() {
     Bench b;
     b.record(3, {{2, packets::ALARM_LOST}});
-    b.alarm(4, 2, packets::AlarmType::Lost);
+    b.record(4, {{2, 0}});                     // il 4 lo sente bene
     b.run(1000);
-    TEST_ASSERT_EQUAL(ble::RunnerState::Lost, b.state(2));
+    TEST_ASSERT_EQUAL(ble::RunnerState::PreAlarm, b.state(2));
     b.beacon(3);                               // il 3 e' vivo, il 4 tace
     b.run(OBSERVER_VALID_MS - 1000);
     b.beacon(3);
-    b.run(2000);                               // il 4 non da' segni da oltre OBSERVER_VALID_MS
-    TEST_ASSERT_EQUAL(ble::RunnerState::PreAlarm, b.state(2));
+    b.run(2000);                               // il 4 non da' segni da oltre OBSERVER_VALID_MS: resta il 3 da solo
+    TEST_ASSERT_EQUAL(ble::RunnerState::Lost, b.state(2));
+    TEST_ASSERT_EQUAL(1, b.count(ble::EventType::Lost, 2));
 }
 
 void test_chiusura_dall_app_senza_rientro_e_senza_ripresentarsi() {
@@ -287,7 +297,8 @@ int main() {
     RUN_TEST(test_un_corridore_sentito_resta_fino_allo_stop);
     RUN_TEST(test_r_media_degli_ultimi_5_secondi);
     RUN_TEST(test_pre_allarme_e_rientro);
-    RUN_TEST(test_il_perso_ha_bisogno_di_due_osservatori);
+    RUN_TEST(test_con_un_solo_osservatore_basta_una_conferma);
+    RUN_TEST(test_due_osservatori_uno_lo_sente_bene_resta_sospetto);
     RUN_TEST(test_con_due_schede_basta_una);
     RUN_TEST(test_osservatore_silenzioso_non_conta);
     RUN_TEST(test_chiusura_dall_app_senza_rientro_e_senza_ripresentarsi);
