@@ -10,7 +10,6 @@
 
 #include "app.h"
 #include "logger.h"
-#include "nodes.h"
 
 namespace radio {
 namespace {
@@ -20,12 +19,18 @@ const uint8_t BROADCAST[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 QueueHandle_t g_rx_queue = nullptr;
 std::atomic<uint32_t> g_dropped{0};
 
+// MAC dei compagni, imparati dai beacon (indice = ID). Usati solo dal task della logica.
+uint8_t g_peer_mac[MAX_NODES + 1][6];
+bool g_peer_known[MAX_NODES + 1];
+uint32_t g_peer_failed_ms[MAX_NODES + 1];
+
 // Il callback copia il pacchetto in coda e torna subito.
 void on_recv(const esp_now_recv_info_t* info, const uint8_t* data, int len) {
     if (len <= 0 || len > ESPNOW_MAX_PAYLOAD) return;
     RxPacket p;
     p.kind = RxPacket::Kind::Receive;
     p.send_ok = false;
+    memcpy(p.src, info->src_addr, 6);
     p.t_ms = millis();
     p.rssi = info->rx_ctrl->rssi;
     p.sig_mode = info->rx_ctrl->sig_mode;
@@ -110,24 +115,7 @@ bool init(Info& info) {
     info.rate_err = err;
     info.rate_ok = (err == ESP_OK);
 
-    // Un peer per ogni altra scheda, per gli invii con conferma (dalla fase 4): stessa velocita'.
-    // ESP-NOW non permette di rileggere la velocita' di un peer; la verifica e' il codice di
-    // ritorno qui e il controllo su ogni pacchetto ricevuto (rate_ok).
-    for (const NodeEntry& n : NODES) {
-        if (n.id == 0) break;
-        if (memcmp(n.mac, g_node.mac, 6) == 0) continue;
-        esp_err_t e = add_peer(n.mac);
-        if (e == ESP_OK) e = fix_rate(n.mac);
-        if (e == ESP_OK) {
-            info.peers++;
-        } else {
-            info.peers_failed++;
-            if (info.rate_err == 0) info.rate_err = e;
-            info.rate_ok = false;
-        }
-    }
-    dbg("velocita 802.11b 1 Mbit/s: %s (err %d) peer %d falliti %d", info.rate_ok ? "applicata" : "ERRORE",
-        info.rate_err, info.peers, info.peers_failed);
+    dbg("velocita 802.11b 1 Mbit/s: %s (err %d)", info.rate_ok ? "applicata" : "ERRORE", info.rate_err);
 
     // La potenza si riscrive dopo l'avvio di ESP-NOW e si rilegge per sicurezza.
     esp_wifi_set_max_tx_power(TX_POWER_QDBM);
@@ -142,9 +130,35 @@ void start() {
     esp_now_register_send_cb(on_sent);
 }
 
+// ESP-NOW non permette di rileggere la velocita' di un peer: la verifica e' il codice di ritorno qui e il controllo
+// su ogni pacchetto ricevuto (rate_ok).
+PeerResult learn_peer(uint8_t id, const uint8_t mac[6], int& err) {
+    err = 0;
+    if (id == 0 || id > MAX_NODES) return PeerResult::Unchanged;
+    bool changed = g_peer_known[id] && memcmp(g_peer_mac[id], mac, 6) != 0;
+    if (g_peer_known[id] && !changed) return PeerResult::Unchanged;
+    uint32_t now = millis();
+    if (g_peer_failed_ms[id] != 0 && now - g_peer_failed_ms[id] < PEER_RETRY_MS) return PeerResult::Unchanged;
+
+    if (changed) esp_now_del_peer(g_peer_mac[id]);
+    esp_err_t e = add_peer(mac);
+    if (e == ESP_ERR_ESPNOW_EXIST) e = ESP_OK;
+    if (e == ESP_OK) e = fix_rate(mac);
+    if (e != ESP_OK) {
+        err = e;
+        g_peer_known[id] = false;
+        g_peer_failed_ms[id] = now;
+        return PeerResult::Failed;
+    }
+    memcpy(g_peer_mac[id], mac, 6);
+    g_peer_known[id] = true;
+    g_peer_failed_ms[id] = 0;
+    return changed ? PeerResult::MacChanged : PeerResult::Added;
+}
+
 bool send_to(uint8_t id, const uint8_t* data, size_t len) {
-    const uint8_t* mac = node_mac_from_id(id);
-    return mac != nullptr && esp_now_send(mac, data, len) == ESP_OK;
+    if (id == 0 || id > MAX_NODES || !g_peer_known[id]) return false;
+    return esp_now_send(g_peer_mac[id], data, len) == ESP_OK;
 }
 
 bool receive(RxPacket& p, TickType_t wait) { return xQueueReceive(g_rx_queue, &p, wait) == pdTRUE; }

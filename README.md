@@ -22,10 +22,13 @@ ufficiale espressif32 e' ferma al core 2.x. La definizione della scheda e' in
 
 ## Prima di partire
 
-1. Flash di ogni scheda, lettura del MAC dalla seriale (o dal display, con ID 0).
-2. Aggiungere i MAC a `include/nodes.h` (ID 1..20) e ricaricare: la scheda mostra il suo `ID`.
-   Il ruolo (corridore o capogruppo) non sta in `nodes.h`: vedi sotto.
-3. Parametri (canale, potenza, periodo, soglie) in `include/config.h`.
+1. Flash di ogni scheda: **lo stesso firmware per tutte**. Il MAC compare sulla seriale e sul display (con ID 0).
+2. Ogni scheda ha il suo **ID** (1..20): le tre gia' in uso lo prendono da `include/nodes.h`; per una scheda nuova si
+   collega l'USB e si scrive nella seriale `id 5` (salva in NVS e riavvia). Non serve toccare le altre schede ne'
+   `nodes.h`, e i MAC dei compagni non si elencano: si imparano dai beacon. `id` mostra l'ID e da dove viene, `id 0` toglie
+   quello salvato. Se due schede hanno lo stesso ID il display mostra `ID DOPPIO` e il registro una riga `SYS`.
+3. Il limite e' di 20 schede (`MAX_NODES`, limite dei peer di ESP-NOW). Soglie, timer e potenza sono in `include/config.h`
+   e valgono per tutte: cambiarli richiede un riflash.
 4. `BAT_CAL` in `config.h` va tarato con un multimetro sulla batteria.
 
 ## Uso
@@ -81,7 +84,9 @@ stacca di nuovo (un SOS chiuso, finche' il corridore non smette di segnalarlo). 
 l'evento RIENTRO; l'SOS si chiude solo a mano.
 
 **BLE** (libreria del core Arduino, NimBLE; si accende solo se la scheda e' capogruppo): un servizio con tre
-caratteristiche, UUID in `include/config.h` (`BLE_*_UUID`, da usare uguali nell'app), MTU 247:
+caratteristiche, MTU 247. Gli UUID sono quattro in `include/config.h` (`BLE_*_UUID`, da usare uguali nell'app): uno per
+il servizio e tre per le caratteristiche (dati, urgenti, comandi). Sono gli stessi su tutte le schede: non c'e' un UUID per scheda,
+e l'app si collega al capogruppo:
 
 | caratteristica | verso | contenuto |
 |---|---|---|
@@ -135,12 +140,13 @@ Comandi seriali (115200, uno per riga):
 
 | Comando | Risposta |
 |---|---|
-| `info` | `INFO id= mac= fw= file= state=` |
+| `info` | `INFO id= mac= fw= file= state= ruolo=` |
 | `ls` | una riga `FILE nome dimensione crc32` per file, poi `END` |
 | `free` | `FREE total= used= free=` |
 | `get <file>` | `BEGIN nome dimensione crc32`, i byte del file, `END` |
 | `rm <file>` | `OK`; rifiuta il file aperto |
 | `format SI` | formatta e ferma la registrazione |
+| `id` / `id N` | mostra l'ID della scheda / lo salva (1..20) e riavvia; `id 0` toglie quello salvato |
 | `start` / `stop` | solo sul capogruppo: avvia o ferma la corsa (come il comando dell'app) |
 
 Le righe che iniziano con `#` sono messaggi di debug e vanno ignorate.

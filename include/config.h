@@ -31,6 +31,10 @@ constexpr uint32_t LEADER_CONFLICT_MS = 2000; // un altro capogruppo e' "present
 constexpr uint32_t ROLE_WINDOW_MS = 10000;
 constexpr const char* ROLE_NVS_NAMESPACE = "manet";
 constexpr const char* ROLE_NVS_KEY = "ruolo";
+constexpr const char* ID_NVS_KEY = "id";               // ID della scheda, impostato con il comando seriale "id N"
+constexpr uint32_t PEER_RETRY_MS = 5000;               // un compagno non registrabile come peer si riprova a questo intervallo
+constexpr uint32_t ID_DUP_LOG_MS = 10000;              // riga SYS "ID doppio" al massimo con questo intervallo
+constexpr uint32_t ID_DUP_SHOW_MS = 5000;              // l'avviso "ID DOPPIO" resta sul display per tanto
 
 // --- Rilevatore (lo stesso di manet-sim, ritarato sul canale misurato) -------
 // Kalman per compagno: stato [segnale, pendenza].

@@ -12,8 +12,10 @@
 #include "app.h"
 #include "config.h"
 #include "crc32.h"
+#include "identity.h"
 #include "logger.h"
 #include "logic.h"
+#include "node_id.h"
 #include "runfile.h"
 
 namespace {
@@ -187,6 +189,29 @@ void cmd_rm(const char* arg) {
     reply(r == 0 ? "OK" : "ERR cancellazione fallita");
 }
 
+// "id": mostra l'ID; "id N" (1..MAX_NODES) lo salva e riavvia, "id 0" toglie quello salvato.
+// Cosi' una scheda nuova si flasha uguale alle altre e si distingue con un solo comando.
+void cmd_id(const char* arg) {
+    if (arg[0] == '\0') {
+        reply("ID id=%d origine=%s", g_node.id, g_node.id_source);
+        return;
+    }
+    int id = parse_node_id(arg);
+    if (id < 0) {
+        reply("ERR serve un numero da 1 a %d (0 toglie l'ID salvato)", MAX_NODES);
+        return;
+    }
+    if (!identity::save(id)) {
+        reply("ERR NVS non risponde");
+        return;
+    }
+    reply("OK id=%d, riavvio", id);
+    logger::save_and_close("cambio id");
+    Serial.flush();
+    delay(200);
+    ESP.restart();
+}
+
 // start e stop servono a provare la corsa senza l'app (stessa strada del BLE); solo sul capogruppo.
 void cmd_run(bool start) {
     NodeStatus st = {};
@@ -232,12 +257,14 @@ void run_command(char* line) {
         cmd_rm(arg);
     } else if (strcmp(line, "format") == 0) {
         cmd_format(arg);
+    } else if (strcmp(line, "id") == 0) {
+        cmd_id(arg);
     } else if (strcmp(line, "start") == 0) {
         cmd_run(true);
     } else if (strcmp(line, "stop") == 0) {
         cmd_run(false);
     } else if (line[0] != '\0') {
-        reply("ERR comando sconosciuto (info, ls, free, get, rm, format, start, stop)");
+        reply("ERR comando sconosciuto (info, ls, free, get, rm, format, id, start, stop)");
     }
 }
 

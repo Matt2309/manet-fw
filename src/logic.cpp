@@ -14,6 +14,8 @@
 #include "radio.h"
 #include "runlog.h"
 
+volatile uint32_t g_dup_id_ms = 0;
+
 namespace {
 
 Node* g_node_logic = nullptr;
@@ -24,6 +26,7 @@ QueueHandle_t g_status_queue = nullptr;  // verso la UI: un solo elemento, sovra
 bool g_two_leaders = false;
 uint32_t g_unexpected_rate = 0;
 uint32_t g_last_rate_log = 0;
+uint32_t g_last_dup_log = 0;
 
 bool due(uint32_t now, uint32_t at) { return static_cast<int32_t>(now - at) >= 0; }
 
@@ -112,8 +115,39 @@ void handle_rx(const radio::RxPacket& p) {
         }
     }
 
+    // Un beacon con il mio ID da un altro MAC: due schede con lo stesso ID. (Solo i beacon: allarmi e comandi
+    // rilanciati portano l'ID di chi li ha creati ma il MAC di chi li rilancia.)
+    if (g_node.id != 0 && p.len > 3 && p.data[2] == static_cast<uint8_t>(packets::Type::Beacon) && p.data[3] == g_node.id &&
+        memcmp(p.src, g_node.mac, 6) != 0) {
+        g_dup_id_ms = p.t_ms;
+        if (p.t_ms - g_last_dup_log >= ID_DUP_LOG_MS || g_last_dup_log == 0) {
+            g_last_dup_log = p.t_ms;
+            logger::post_sys("ID doppio: %d anche sul MAC %02X:%02X:%02X:%02X:%02X:%02X", g_node.id, p.src[0], p.src[1],
+                             p.src[2], p.src[3], p.src[4], p.src[5]);
+        }
+        return;
+    }
+
     packets::Beacon b;
     if (!g_node_logic->on_packet(p.data, p.len, p.rssi, p.t_ms, b)) return;
+
+    // Il MAC del compagno si impara dal suo beacon: serve per gli invii con conferma.
+    int err;
+    switch (radio::learn_peer(b.sender, p.src, err)) {
+        case radio::PeerResult::Added:
+            logger::post_sys("peer %d %02X:%02X:%02X:%02X:%02X:%02X velocita fissata", b.sender, p.src[0], p.src[1], p.src[2],
+                             p.src[3], p.src[4], p.src[5]);
+            break;
+        case radio::PeerResult::MacChanged:
+            logger::post_sys("peer %d: MAC cambiato in %02X:%02X:%02X:%02X:%02X:%02X (ID doppio?)", b.sender, p.src[0], p.src[1],
+                             p.src[2], p.src[3], p.src[4], p.src[5]);
+            break;
+        case radio::PeerResult::Failed:
+            logger::post_sys("peer %d non registrato err=%d", b.sender, err);
+            break;
+        case radio::PeerResult::Unchanged:
+            break;
+    }
 
     LogEvent e;
     memset(&e, 0, sizeof(e));

@@ -12,6 +12,7 @@
 #include "config.h"
 #include "console.h"
 #include "gnss.h"
+#include "identity.h"
 #include "logger.h"
 #include "logic.h"
 #include "lora_sleep.h"
@@ -50,9 +51,11 @@ void setup() {
     esp_read_mac(g_node.mac, ESP_MAC_WIFI_STA);
     snprintf(g_node.mac_str, sizeof(g_node.mac_str), "%02X:%02X:%02X:%02X:%02X:%02X", g_node.mac[0],
              g_node.mac[1], g_node.mac[2], g_node.mac[3], g_node.mac[4], g_node.mac[5]);
-    g_node.id = node_id_from_mac(g_node.mac);
-    dbg("manet-fw %s id=%d mac=%s", FW_VERSION, g_node.id, g_node.mac_str);
-    if (g_node.id == 0) dbg("MAC non in tabella: aggiungerlo a include/nodes.h (ID 0)");
+    identity::Id who = identity::load(g_node.mac);
+    g_node.id = who.id;
+    g_node.id_source = identity::source_name(who.source);
+    dbg("manet-fw %s id=%d (%s) mac=%s", FW_VERSION, g_node.id, g_node.id_source, g_node.mac_str);
+    if (g_node.id == 0) dbg("ID non assegnato: dalla seriale, comando 'id N' (1..%d)", MAX_NODES);
 
     // La radio LoRa non serve.
     char lora_msg[64];
@@ -76,7 +79,7 @@ void setup() {
                              rinfo.power_qdbm);
         }
         if (!rinfo.rate_ok) logger::post_sys("velocita non applicata err=%d", rinfo.rate_err);
-        logger::post_sys("peer %d velocita fissata, falliti %d", rinfo.peers, rinfo.peers_failed);
+        logger::post_sys("id %d origine %s", g_node.id, g_node.id_source);
     } else {
         dbg("ERRORE: file system o apertura del file falliti");
     }

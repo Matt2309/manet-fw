@@ -173,6 +173,10 @@ void draw_display(uint32_t now, bool blink_on, const NodeStatus& ns, Warning war
             draw_row(2, "SALVATO");
         } else if (st == logger::State::Error) {
             draw_row(2, "ERRORE FILE");
+        } else if (g_dup_id_ms != 0 && now - g_dup_id_ms < ID_DUP_SHOW_MS) {
+            draw_row(2, "ID DOPPIO");
+        } else if (g_node.id == 0) {
+            draw_row(2, "ID da assegnare (id N)");
         } else if (ns.two_leaders) {
             draw_row(2, "DUE CAPOGRUPPO");
         } else if (in_role_window(ns, now)) {

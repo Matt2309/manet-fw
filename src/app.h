@@ -7,7 +7,8 @@
 
 // Identita' della scheda, fissata all'avvio.
 struct NodeInfo {
-    uint8_t id;           // 1..MAX_NODES, 0 se il MAC non e' in tabella
+    uint8_t id;           // 1..MAX_NODES, 0 se non assegnato (comando seriale "id N")
+    const char* id_source;  // "nvs", "tabella" o "nessuna"
     uint8_t mac[6];
     char mac_str[18];     // "AA:BB:CC:DD:EE:FF"
 };
@@ -22,6 +23,9 @@ struct GpsStatus {
     volatile int sat;
 };
 extern GpsStatus g_gps;
+
+// Istante in cui si e' visto un beacon con il proprio ID da un altro MAC (0 = mai).
+extern volatile uint32_t g_dup_id_ms;
 
 // Carica della batteria in %, aggiornata dal task dell'interfaccia (media mobile).
 extern volatile int g_battery_pct;

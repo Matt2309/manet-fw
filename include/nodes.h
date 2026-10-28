@@ -1,8 +1,11 @@
-// Tabella MAC -> ID del nodo (1..MAX_NODES).
+// Tabella MAC -> ID del nodo (1..MAX_NODES): solo l'ID di partenza delle schede gia' in uso.
+//
+// Una scheda nuova NON va aggiunta qui: si flasha uguale alle altre e si assegna l'ID dalla seriale
+// (comando "id N", salvato in NVS e piu' forte di questa tabella). I MAC dei compagni non si
+// elencano da nessuna parte: si imparano dai beacon.
 //
 // Il MAC e' quello della interfaccia Wi-Fi STA, stampato all'avvio sulla seriale
-// e mostrato sul display quando l'ID e' 0 (scheda non in tabella).
-// Aggiungere una riga per scheda, prima del terminatore.
+// e mostrato sul display quando l'ID e' 0 (scheda non assegnata).
 #pragma once
 
 #include <stdint.h>
@@ -36,13 +39,4 @@ inline uint8_t node_id_from_mac(const uint8_t mac[6]) {
         if (uguale) return n.id;
     }
     return 0;
-}
-
-// MAC di un nodo dall'ID; nullptr se l'ID non e' in tabella.
-inline const uint8_t* node_mac_from_id(uint8_t id) {
-    for (const NodeEntry& n : NODES) {
-        if (n.id == 0) break;
-        if (n.id == id) return n.mac;
-    }
-    return nullptr;
 }
