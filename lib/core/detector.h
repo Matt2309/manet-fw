@@ -9,18 +9,23 @@
 #include <stdint.h>
 
 #include "config.h"
+#include "fix.h"
 #include "kalman.h"
 #include "packets.h"
 
 enum class DetKind : uint8_t { PreAlarm, Lost, Deaf };
+// Rilevatore senza GNSS e con il ramo GNSS. Nodo perso e scheda sorda sono gli stessi: si emettono come Base.
+enum class DetVersion : uint8_t { Base = 0, Gnss = 1 };
 
 // Una decisione: inizio o fine di pre-allarme, nodo perso o scheda sorda per un compagno.
 struct DetEvent {
     uint32_t t_ms;
+    DetVersion version;
     DetKind kind;
     bool start;
     uint8_t target;
-    double r;  // segnale fuso, solo per il pre-allarme
+    double r;          // segnale fuso, solo per il pre-allarme
+    double threshold;  // soglia di pre-allarme in vigore, solo per il pre-allarme
 };
 
 // Stima del collegamento compagno -> me, predetta a un istante.
@@ -33,14 +38,20 @@ struct LinkView {
 
 class Detector {
 public:
-    // Eventi per tick: al piu' pre-allarme, perso e sorda per ogni compagno.
-    static constexpr size_t MAX_EVENTS = 3 * packets::MAX_NEIGHBORS;
+    // Eventi per tick: al piu' pre-allarme (due versioni), perso e sorda per ogni compagno.
+    static constexpr size_t MAX_EVENTS = 4 * packets::MAX_NEIGHBORS;
 
     explicit Detector(uint8_t self_id) : self_(self_id) {}
 
     // Beacon ricevuto da b.sender (gia' validato): aggiorna il Kalman, lo storico delle
     // ricezioni e la tabella di quel mittente.
     void on_beacon(const packets::Beacon& b, int8_t rssi, uint32_t now_ms);
+
+    // Ultimo campione GNSS proprio (valido o no).
+    void set_own_fix(const GnssSample& s) { own_fix_ = s; }
+
+    // Posizione propria se il fix e' valido e piu' giovane di GNSS_MAX_AGE_MS.
+    bool own_position(uint32_t now_ms, packets::Position& out) const;
 
     // Controlli a tempo (ogni LOGIC_TICK_MS). Scrive in out (MAX_EVENTS posti) le decisioni
     // cambiate e restituisce quante sono.
@@ -52,7 +63,9 @@ public:
     // Stima del compagno id predetta a now_ms; false se mai sentito.
     bool estimate(uint8_t id, uint32_t now_ms, LinkView& v) const;
 
-    uint8_t pre_count() const;
+    // Compagni in pre-allarme: nella versione data, o in quella scelta da ALARM_USES_GNSS.
+    uint8_t pre_count(DetVersion v) const;
+    uint8_t pre_count() const { return pre_count(ALARM_USES_GNSS ? DetVersion::Gnss : DetVersion::Base); }
     uint8_t lost_count() const;
 
 private:
@@ -63,6 +76,20 @@ private:
         int8_t s;
         uint8_t sigma;
         uint8_t age_q;
+    };
+
+    // Pre-allarme di una versione: condizione corrente e allarme.
+    struct PreState {
+        bool cond;
+        uint32_t cond_since;
+        bool on;
+    };
+
+    // Un campione per il ramo GNSS: distanza dal compagno e segnale fuso.
+    struct GnssRow {
+        uint32_t t_ms;
+        float d;
+        float r;
     };
 
     struct Peer {
@@ -76,12 +103,17 @@ private:
         bool table_valid;
         uint32_t table_rx_ms;
         Entry entry[MAX_NODES];
-        // Pre-allarme su questo compagno.
-        bool cond;
-        uint32_t cond_since;
+        // Pre-allarme su questo compagno, per le due versioni. Il ritorno al segnale buono e' lo stesso.
+        PreState pre[2];
         bool back;
         uint32_t back_since;
-        bool pre_on;
+        // Posizione dell'ultimo beacon (assente se il compagno non ha un fix valido) e storia per il ramo GNSS.
+        bool has_pos;
+        packets::Position pos;
+        uint32_t pos_ms;
+        GnssRow hist[GNSS_HISTORY_LEN];
+        uint8_t hist_n;
+        uint8_t hist_next;
         // Nodo perso e scheda sorda. L'episodio di silenzio si valuta una volta sola.
         bool episode_checked;
         bool episode_deaf;
@@ -95,9 +127,13 @@ private:
     bool fused_level(uint8_t target, uint32_t now_ms, double& level) const;
     int receptions_in_window(const Peer& p, uint32_t now_ms) const;
     bool deaf_episode(uint8_t target, uint32_t last_ms) const;
+    void gnss_rule(Peer& p, uint32_t now_ms, bool has, double level, double& threshold, uint32_t& min_ms);
+    void step_pre(Peer& p, uint8_t id, uint32_t now_ms, DetVersion v, bool has, double level, double threshold,
+                  uint32_t min_ms, bool off, DetEvent* out, size_t& n);
     void tick_pre(uint8_t id, uint32_t now_ms, DetEvent* out, size_t& n);
     void tick_lost(uint8_t id, uint32_t now_ms, DetEvent* out, size_t& n);
 
     uint8_t self_;
+    GnssSample own_fix_ = {};
     Peer peers_[MAX_NODES] = {};
 };

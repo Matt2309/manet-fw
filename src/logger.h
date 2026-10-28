@@ -45,6 +45,7 @@ struct LogEvent {
             bool start;
             uint8_t id;
             float r;
+            float threshold;
         } det;
         struct {
             TelAction action;

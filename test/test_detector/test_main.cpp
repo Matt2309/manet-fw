@@ -1,6 +1,8 @@
 #include <unity.h>
 
+#include <functional>
 #include <initializer_list>
+#include <math.h>
 #include <vector>
 
 #include "detector.h"
@@ -21,19 +23,31 @@ struct Bench {
         det.on_beacon(b, rssi, t);
     }
 
+    // Beacon del compagno con la sua posizione, a d_m metri a nord del punto di riferimento.
+    void beacon_at(uint32_t t, uint8_t src, int8_t rssi, double d_m) {
+        packets::Beacon b = {};
+        b.sender = src;
+        b.has_pos = true;
+        b.pos = packets::Position{450000000 + static_cast<int32_t>(lround(d_m / 0.0111195)), 90000000, 10};
+        det.on_beacon(b, rssi, t);
+    }
+
+    // Fix proprio nel punto di riferimento.
+    void own_fix(uint32_t t) { det.set_own_fix(GnssSample{t, true, packets::Position{450000000, 90000000, 10}}); }
+
     void tick(uint32_t t) {
         DetEvent out[Detector::MAX_EVENTS];
         size_t n = det.tick(t, out);
         for (size_t i = 0; i < n; i++) events.push_back(out[i]);
     }
 
-    // Eventi di un tipo per un compagno, in ordine.
-    std::vector<DetEvent> of(DetKind kind, uint8_t target) const {
-        std::vector<DetEvent> v;
+    // Eventi di un tipo per un compagno, in ordine. Il pre-allarme esiste in due versioni.
+    std::vector<DetEvent> of(DetKind kind, uint8_t target, DetVersion v = DetVersion::Base) const {
+        std::vector<DetEvent> out;
         for (const DetEvent& e : events) {
-            if (e.kind == kind && e.target == target) v.push_back(e);
+            if (e.kind == kind && e.target == target && e.version == v) out.push_back(e);
         }
-        return v;
+        return out;
     }
 };
 
@@ -211,6 +225,122 @@ void test_riavvio_del_filtro_dopo_silenzio_lungo() {
     TEST_ASSERT_DOUBLE_WITHIN(1e-9, 0.0, v.s);
 }
 
+// --- Ramo GNSS ----------------------------------------------------------------------------------
+// Compagno 2 con posizione nei beacon e fix proprio ogni secondo. dist(t) in metri e rssi(t) in dBm.
+// L'intervallo [no_fix_from, no_fix_to) e' senza fix proprio.
+static void gnss_run(Bench& b, std::function<double(uint32_t)> dist, std::function<double(uint32_t)> rssi,
+                     uint32_t no_fix_from = 0, uint32_t no_fix_to = 0, bool with_pos = true) {
+    for (uint32_t t = 0; t <= 45000; t += 50) {
+        if (t >= 500 && t % 500 == 0) {
+            int8_t r = static_cast<int8_t>(lround(rssi(t)));
+            if (with_pos) {
+                b.beacon_at(t, 2, r, dist(t));
+            } else {
+                b.beacon(t, 2, r);
+            }
+        }
+        bool no_fix = t >= no_fix_from && t < no_fix_to;
+        if (t % 1000 == 0 && !no_fix) b.own_fix(t);
+        if (t % 100 == 0) b.tick(t);
+    }
+}
+
+// Il segnale scende di 1,5 dB/s da 10 s a 30 s (da -70 a -100 dBm).
+static double falling(uint32_t t) {
+    if (t < 10000) return -70.0;
+    double r = -70.0 - 1.5 * (t - 10000) / 1000.0;
+    return r < -100.0 ? -100.0 : r;
+}
+
+// Distanza: 5 m fino a 10 s, poi cresce di `speed` m/s.
+static std::function<double(uint32_t)> distance(double speed) {
+    return [speed](uint32_t t) { return t < 10000 ? 5.0 : 5.0 + speed * (t - 10000) / 1000.0; };
+}
+
+void test_gnss_distanza_che_cresce_anticipa_il_pre_allarme() {
+    Bench b;
+    gnss_run(b, distance(1.5), falling);  // +15 m in 10 s, -15 dB
+    std::vector<DetEvent> base = b.of(DetKind::PreAlarm, 2, DetVersion::Base);
+    std::vector<DetEvent> gnss = b.of(DetKind::PreAlarm, 2, DetVersion::Gnss);
+    TEST_ASSERT_EQUAL(1, base.size());
+    TEST_ASSERT_EQUAL(1, gnss.size());
+    TEST_ASSERT_EQUAL_DOUBLE(-93.0, base[0].threshold);
+    TEST_ASSERT_EQUAL_DOUBLE(-90.0, gnss[0].threshold);
+    TEST_ASSERT_TRUE(gnss[0].t_ms + 1500 <= base[0].t_ms);  // -90 dBm si raggiunge ~2 s prima di -93
+    TEST_ASSERT_EQUAL(1, b.det.pre_count(DetVersion::Gnss));
+}
+
+void test_gnss_distanza_ferma_aspetta_soglia_piu_bassa_e_conferma() {
+    Bench b;
+    gnss_run(b, distance(0.0), falling);  // fermi, ma il segnale cala di 15 dB
+    std::vector<DetEvent> base = b.of(DetKind::PreAlarm, 2, DetVersion::Base);
+    std::vector<DetEvent> gnss = b.of(DetKind::PreAlarm, 2, DetVersion::Gnss);
+    TEST_ASSERT_EQUAL(1, base.size());
+    TEST_ASSERT_EQUAL(1, gnss.size());
+    TEST_ASSERT_EQUAL_DOUBLE(-95.0, gnss[0].threshold);
+    // -95 si raggiunge ~1,3 s dopo -93, e poi servono 3 s invece di 1.
+    TEST_ASSERT_TRUE(gnss[0].t_ms >= base[0].t_ms + 3000);
+}
+
+void test_gnss_variazione_incerta_resta_la_soglia_normale() {
+    // Fra 3 e 8 m in 10 s (qui +5 m): ne' "cresce" ne' "ferma".
+    Bench b;
+    gnss_run(b, distance(0.5), falling);
+    std::vector<DetEvent> base = b.of(DetKind::PreAlarm, 2, DetVersion::Base);
+    std::vector<DetEvent> gnss = b.of(DetKind::PreAlarm, 2, DetVersion::Gnss);
+    TEST_ASSERT_EQUAL(1, gnss.size());
+    TEST_ASSERT_EQUAL_UINT32(base[0].t_ms, gnss[0].t_ms);
+    TEST_ASSERT_EQUAL_DOUBLE(-93.0, gnss[0].threshold);
+}
+
+void test_gnss_distanza_che_diminuisce_resta_la_soglia_normale() {
+    Bench b;
+    gnss_run(b, [](uint32_t t) { return t < 10000 ? 30.0 : 30.0 - 1.5 * (t - 10000) / 1000.0; }, falling);
+    std::vector<DetEvent> base = b.of(DetKind::PreAlarm, 2, DetVersion::Base);
+    std::vector<DetEvent> gnss = b.of(DetKind::PreAlarm, 2, DetVersion::Gnss);
+    TEST_ASSERT_EQUAL(1, gnss.size());
+    TEST_ASSERT_EQUAL_UINT32(base[0].t_ms, gnss[0].t_ms);
+    TEST_ASSERT_EQUAL_DOUBLE(-93.0, gnss[0].threshold);
+}
+
+void test_gnss_senza_posizione_del_compagno_uguale_al_base() {
+    Bench b;
+    gnss_run(b, distance(1.5), falling, 0, 0, false);
+    std::vector<DetEvent> base = b.of(DetKind::PreAlarm, 2, DetVersion::Base);
+    std::vector<DetEvent> gnss = b.of(DetKind::PreAlarm, 2, DetVersion::Gnss);
+    TEST_ASSERT_EQUAL(1, gnss.size());
+    TEST_ASSERT_EQUAL_UINT32(base[0].t_ms, gnss[0].t_ms);
+}
+
+void test_gnss_un_fix_perso_azzera_la_storia() {
+    // Senza fix proprio fra 12 e 18 s la storia riparte: servono altri 10 s, quando il base ha gia' scattato.
+    Bench b;
+    gnss_run(b, distance(1.5), falling, 12000, 18000);
+    std::vector<DetEvent> base = b.of(DetKind::PreAlarm, 2, DetVersion::Base);
+    std::vector<DetEvent> gnss = b.of(DetKind::PreAlarm, 2, DetVersion::Gnss);
+    TEST_ASSERT_EQUAL(1, gnss.size());
+    TEST_ASSERT_EQUAL_UINT32(base[0].t_ms, gnss[0].t_ms);
+    TEST_ASSERT_EQUAL_DOUBLE(-93.0, gnss[0].threshold);
+}
+
+void test_gnss_non_cambia_il_nodo_perso_ne_lo_spegnimento() {
+    Bench b;
+    for (uint32_t t = 0; t <= 80000; t += 100) {
+        if (t >= 500 && t % 500 == 0 && (t < 20000 || t >= 40000)) b.beacon_at(t, 2, t < 10000 ? -100 : -70, 5.0);
+        if (t >= 500 && t % 500 == 0) b.beacon(t, 3, -60);
+        if (t % 1000 == 0) b.own_fix(t);
+        b.tick(t);
+    }
+    // Il nodo perso e' uno solo (versione base); il pre-allarme di entrambe le versioni finisce nello stesso istante.
+    TEST_ASSERT_EQUAL(2, b.of(DetKind::Lost, 2, DetVersion::Base).size());
+    TEST_ASSERT_EQUAL(0, b.of(DetKind::Lost, 2, DetVersion::Gnss).size());
+    std::vector<DetEvent> base = b.of(DetKind::PreAlarm, 2, DetVersion::Base);
+    std::vector<DetEvent> gnss = b.of(DetKind::PreAlarm, 2, DetVersion::Gnss);
+    TEST_ASSERT_EQUAL(2, base.size());
+    TEST_ASSERT_EQUAL(2, gnss.size());
+    TEST_ASSERT_EQUAL_UINT32(base[1].t_ms, gnss[1].t_ms);
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_voci_del_beacon);
@@ -225,5 +355,12 @@ int main() {
     RUN_TEST(test_fusione_con_le_stime_dei_vicini);
     RUN_TEST(test_voce_troppo_vecchia_esclusa);
     RUN_TEST(test_riavvio_del_filtro_dopo_silenzio_lungo);
+    RUN_TEST(test_gnss_distanza_che_cresce_anticipa_il_pre_allarme);
+    RUN_TEST(test_gnss_distanza_ferma_aspetta_soglia_piu_bassa_e_conferma);
+    RUN_TEST(test_gnss_variazione_incerta_resta_la_soglia_normale);
+    RUN_TEST(test_gnss_distanza_che_diminuisce_resta_la_soglia_normale);
+    RUN_TEST(test_gnss_senza_posizione_del_compagno_uguale_al_base);
+    RUN_TEST(test_gnss_un_fix_perso_azzera_la_storia);
+    RUN_TEST(test_gnss_non_cambia_il_nodo_perso_ne_lo_spegnimento);
     return UNITY_END();
 }

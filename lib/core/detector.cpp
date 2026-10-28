@@ -2,14 +2,17 @@
 
 #include <math.h>
 
+#include "geo.h"
+
 namespace {
 
 // Peso minimo delle voci: varianza di un passo di quantizzazione dell'incertezza.
 constexpr double MIN_VARIANCE = packets::SIGMA_STEP * packets::SIGMA_STEP / 12.0;
 constexpr double SIGMA_A2 = KALMAN_SIGMA_A * KALMAN_SIGMA_A;
 
-void emit(DetEvent* out, size_t& n, uint32_t t_ms, DetKind kind, bool start, uint8_t target, double r) {
-    out[n++] = DetEvent{t_ms, kind, start, target, r};
+void emit(DetEvent* out, size_t& n, uint32_t t_ms, DetVersion v, DetKind kind, bool start, uint8_t target,
+          double r = 0.0, double threshold = 0.0) {
+    out[n++] = DetEvent{t_ms, v, kind, start, target, r, threshold};
 }
 
 }  // namespace
@@ -24,6 +27,12 @@ void Detector::on_beacon(const packets::Beacon& b, int8_t rssi, uint32_t now_ms)
     if (p.rx_n < RX_HISTORY_LEN) p.rx_n++;
     p.episode_checked = false;
     p.episode_deaf = false;
+
+    p.has_pos = b.has_pos;
+    if (b.has_pos) {
+        p.pos = b.pos;
+        p.pos_ms = now_ms;
+    }
 
     // Si tiene solo l'ultima tabella di ogni mittente.
     for (Entry& e : p.entry) e.valid = false;
@@ -92,29 +101,87 @@ bool Detector::deaf_episode(uint8_t target, uint32_t last_ms) const {
     return true;
 }
 
+bool Detector::own_position(uint32_t now_ms, packets::Position& out) const {
+    if (!own_fix_.valid || now_ms - own_fix_.t_ms >= GNSS_MAX_AGE_MS) return false;
+    out = own_fix_.pos;
+    return true;
+}
+
+// Ramo GNSS: con fix valido su entrambe le schede cambia la soglia in base a distanza e segnale di 10 s fa.
+// Senza campioni sufficienti, o nei casi incerti, restano la soglia e la conferma normali.
+void Detector::gnss_rule(Peer& p, uint32_t now_ms, bool has, double level, double& threshold, uint32_t& min_ms) {
+    packets::Position own;
+    bool ok = has && p.has_pos && now_ms - p.pos_ms < GNSS_MAX_AGE_MS && own_position(now_ms, own);
+    if (!ok) {
+        p.hist_n = 0;  // la storia deve essere continua
+        return;
+    }
+    double d = distance_m(own, p.pos);
+
+    // Campione di riferimento: il piu' recente che ha almeno GNSS_WINDOW_MS.
+    const GnssRow* ref = nullptr;
+    for (uint8_t k = 0; k < p.hist_n; k++) {
+        const GnssRow& row = p.hist[(p.hist_next + GNSS_HISTORY_LEN - 1 - k) % GNSS_HISTORY_LEN];
+        if (now_ms - row.t_ms >= GNSS_WINDOW_MS) {
+            ref = &row;
+            break;
+        }
+    }
+    if (ref != nullptr) {
+        double dd = d - ref->d;
+        bool falling = level - ref->r <= -GNSS_R_DROP_DB;
+        if (falling && dd > GNSS_GROW_M) {
+            threshold = GNSS_THRESHOLD_GROW_DBM;
+        } else if (falling && fabs(dd) <= GNSS_STILL_M) {
+            threshold = GNSS_THRESHOLD_STILL_DBM;
+            min_ms = GNSS_STILL_MIN_MS;
+        }
+    }
+
+    // Un campione ogni GNSS_SAMPLE_MS.
+    const GnssRow& newest = p.hist[(p.hist_next + GNSS_HISTORY_LEN - 1) % GNSS_HISTORY_LEN];
+    if (p.hist_n == 0 || now_ms - newest.t_ms >= GNSS_SAMPLE_MS) {
+        p.hist[p.hist_next] = GnssRow{now_ms, static_cast<float>(d), static_cast<float>(level)};
+        p.hist_next = static_cast<uint8_t>((p.hist_next + 1) % GNSS_HISTORY_LEN);
+        if (p.hist_n < GNSS_HISTORY_LEN) p.hist_n++;
+    }
+}
+
+void Detector::step_pre(Peer& p, uint8_t id, uint32_t now_ms, DetVersion v, bool has, double level, double threshold,
+                        uint32_t min_ms, bool off, DetEvent* out, size_t& n) {
+    PreState& s = p.pre[static_cast<int>(v)];
+    bool cond = has && level < threshold;
+    if (cond && !s.cond) s.cond_since = now_ms;
+    s.cond = cond;
+    bool on = cond && now_ms - s.cond_since >= min_ms;
+
+    if (off && s.on) {
+        s.on = false;
+        emit(out, n, now_ms, v, DetKind::PreAlarm, false, id, level, threshold);
+    } else if (on && !off && !s.on) {
+        s.on = true;
+        emit(out, n, now_ms, v, DetKind::PreAlarm, true, id, level, threshold);
+    }
+}
+
 void Detector::tick_pre(uint8_t id, uint32_t now_ms, DetEvent* out, size_t& n) {
     Peer& p = peer(id);
     double level = 0.0;
     bool has = fused_level(id, now_ms, level);
 
-    bool cond = has && level < PRE_ALARM_DBM;
+    // Spegnimento: segnale sopra soglia + margine per RELEASE_TIME_MS con ricezione sufficiente. Uguale per le due versioni.
     bool back = has && level > PRE_ALARM_DBM + RELEASE_MARGIN_DB;
-    if (cond && !p.cond) p.cond_since = now_ms;
     if (back && !p.back) p.back_since = now_ms;
-    p.cond = cond;
     p.back = back;
-
-    bool on = cond && now_ms - p.cond_since >= PRE_ALARM_MIN_MS;
     bool rx_ok = receptions_in_window(p, now_ms) >= RELEASE_MIN_BEACONS;
     bool off = back && now_ms - p.back_since >= RELEASE_TIME_MS && rx_ok;
 
-    if (off && p.pre_on) {
-        p.pre_on = false;
-        emit(out, n, now_ms, DetKind::PreAlarm, false, id, level);
-    } else if (on && !off && !p.pre_on) {
-        p.pre_on = true;
-        emit(out, n, now_ms, DetKind::PreAlarm, true, id, level);
-    }
+    step_pre(p, id, now_ms, DetVersion::Base, has, level, PRE_ALARM_DBM, PRE_ALARM_MIN_MS, off, out, n);
+
+    double threshold = PRE_ALARM_DBM;
+    uint32_t min_ms = PRE_ALARM_MIN_MS;
+    gnss_rule(p, now_ms, has, level, threshold, min_ms);
+    step_pre(p, id, now_ms, DetVersion::Gnss, has, level, threshold, min_ms, off, out, n);
 }
 
 void Detector::tick_lost(uint8_t id, uint32_t now_ms, DetEvent* out, size_t& n) {
@@ -127,22 +194,22 @@ void Detector::tick_lost(uint8_t id, uint32_t now_ms, DetEvent* out, size_t& n) 
         p.episode_deaf = deaf_episode(id, last);
         if (p.episode_deaf) {
             p.deaf_on = true;
-            emit(out, n, now_ms, DetKind::Deaf, true, id, 0.0);
+            emit(out, n, now_ms, DetVersion::Base, DetKind::Deaf, true, id);
         }
     }
     if (!silent && p.deaf_on) {
         p.deaf_on = false;
-        emit(out, n, now_ms, DetKind::Deaf, false, id, 0.0);
+        emit(out, n, now_ms, DetVersion::Base, DetKind::Deaf, false, id);
     }
 
     bool on = silent && !p.episode_deaf;
     bool rx_ok = receptions_in_window(p, now_ms) >= RELEASE_MIN_BEACONS;
     if (rx_ok && p.lost_on) {
         p.lost_on = false;
-        emit(out, n, now_ms, DetKind::Lost, false, id, 0.0);
+        emit(out, n, now_ms, DetVersion::Base, DetKind::Lost, false, id);
     } else if (on && !rx_ok && !p.lost_on) {
         p.lost_on = true;
-        emit(out, n, now_ms, DetKind::Lost, true, id, 0.0);
+        emit(out, n, now_ms, DetVersion::Base, DetKind::Lost, true, id);
     }
 }
 
@@ -179,9 +246,9 @@ bool Detector::estimate(uint8_t id, uint32_t now_ms, LinkView& v) const {
     return true;
 }
 
-uint8_t Detector::pre_count() const {
+uint8_t Detector::pre_count(DetVersion v) const {
     uint8_t n = 0;
-    for (const Peer& p : peers_) n += p.pre_on ? 1 : 0;
+    for (const Peer& p : peers_) n += p.pre[static_cast<int>(v)].on ? 1 : 0;
     return n;
 }
 

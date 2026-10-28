@@ -101,7 +101,7 @@ void process_event_locked(const LogEvent& e) {
             break;
         case LogEventType::Det:
             n = csv_det(line, sizeof(line), e.t_ms, e.u.det.version, e.u.det.kind, e.u.det.start, e.u.det.id,
-                        e.u.det.r);
+                        e.u.det.r, e.u.det.threshold);
             break;
         case LogEventType::Tel:
             n = csv_tel(line, sizeof(line), e.t_ms, e.u.tel.action, e.u.tel.id, e.u.tel.t_s, e.u.tel.peer,

@@ -11,7 +11,7 @@
 //                                     in forma ridotta: solo fino a rssi e tab vuoto
 //   GPS,t_ms,utc,lat,lon,alt,vel_kmh,rotta,hdop,sat,fix
 //   KAL,t_ms,id,segnale,pendenza,incertezza,eta       stima del Kalman per un compagno (1 Hz)
-//   DET,t_ms,versione,tipo,inizio|fine,id,R           decisione del rilevatore (base|gnss, pre|perso|sorda)
+//   DET,t_ms,versione,tipo,inizio|fine,id,R,soglia   decisione del rilevatore (base|gnss, pre|perso|sorda)
 //   TEL,t_ms,azione,id,t_s,compagno,n_coda,tentativi  telemetria (prodotto|inviato|confermato|ricevuto|coda)
 //   CMD,t_ms,comando,origine,seq,decimi               START o STOP (app|radio), solo capogruppo per "app"
 //   BLE,t_ms,evento,dettaglio                         connesso|caduto, solo capogruppo
@@ -40,7 +40,6 @@ size_t csv_evt(char* buf, size_t cap, uint32_t t_ms, int n);
 size_t csv_bat(char* buf, size_t cap, uint32_t t_ms, int mv);
 size_t csv_sys(char* buf, size_t cap, uint32_t t_ms, const char* msg);
 
-enum class DetVersion : uint8_t { Base, Gnss };       // rilevatore senza o con GNSS
 enum class TelAction : uint8_t { Produced, Sent, Confirmed, Received, Queued };
 enum class CmdOrigin : uint8_t { App, Radio };
 enum class BleEvent : uint8_t { Connected, Dropped };
@@ -48,9 +47,9 @@ enum class BleEvent : uint8_t { Connected, Dropped };
 // age_ds in decimi di secondo; sigma e' la deviazione standard in dB.
 size_t csv_kal(char* buf, size_t cap, uint32_t t_ms, int id, float signal, float slope, float sigma,
                int age_ds);
-// r e' il segnale fuso del compagno; scritto solo per il pre-allarme.
+// r (segnale fuso) e soglia in vigore si scrivono solo per il pre-allarme.
 size_t csv_det(char* buf, size_t cap, uint32_t t_ms, DetVersion v, DetKind kind, bool start, int id,
-               float r);
+               float r, float threshold);
 // peer = compagno scelto (0 se nessuno), queued = record in coda, tries = tentativi dell'invio.
 size_t csv_tel(char* buf, size_t cap, uint32_t t_ms, TelAction action, int id, int t_s, int peer,
                int queued, int tries);

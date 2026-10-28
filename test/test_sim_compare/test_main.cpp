@@ -107,10 +107,12 @@ bool load(const char* name, SimRun& run) {
 }
 
 // Fa girare i Node sulla corsa e restituisce gli episodi dichiarati dal firmware.
-std::vector<Episode> replay(const SimRun& run, std::vector<Episode> (&got)[N_KINDS]) {
+// Nel pre-allarme esiste anche la versione GNSS: senza posizioni nei beacon deve coincidere con la base.
+void replay(const SimRun& run, std::vector<Episode> (&got)[N_KINDS], std::vector<Episode>& got_gnss) {
     std::vector<Node> nodes;
     for (int i = 1; i <= run.n_nodes; i++) nodes.emplace_back(static_cast<uint8_t>(i), Role::Runner);
     std::vector<Episode> open[N_KINDS];
+    std::vector<Episode> open_gnss;
 
     size_t next = 0;
     uint8_t buf[packets::MAX_SIZE];
@@ -129,13 +131,16 @@ std::vector<Episode> replay(const SimRun& run, std::vector<Episode> (&got)[N_KIN
             size_t n = nodes[m].tick(t, ev);
             for (size_t k = 0; k < n; k++) {
                 int kind = ev[k].kind == DetKind::PreAlarm ? PRE : ev[k].kind == DetKind::Lost ? LOST : DEAF;
+                bool gnss = ev[k].version == DetVersion::Gnss;
+                std::vector<Episode>& list = gnss ? open_gnss : open[kind];
+                std::vector<Episode>& done = gnss ? got_gnss : got[kind];
                 if (ev[k].start) {
-                    open[kind].push_back(Episode{m + 1, ev[k].target, static_cast<int32_t>(ev[k].t_ms), -1});
+                    list.push_back(Episode{m + 1, ev[k].target, static_cast<int32_t>(ev[k].t_ms), -1});
                 } else {
-                    for (Episode& e : open[kind]) {
+                    for (Episode& e : list) {
                         if (e.observer == m + 1 && e.target == ev[k].target && e.end == -1) {
                             e.end = static_cast<int32_t>(ev[k].t_ms);
-                            got[kind].push_back(e);
+                            done.push_back(e);
                             e.end = -2;  // chiuso e gia' riportato
                             break;
                         }
@@ -149,7 +154,9 @@ std::vector<Episode> replay(const SimRun& run, std::vector<Episode> (&got)[N_KIN
             if (e.end == -1) got[kind].push_back(e);
         }
     }
-    return {};
+    for (const Episode& e : open_gnss) {
+        if (e.end == -1) got_gnss.push_back(e);
+    }
 }
 
 bool near(int32_t a, int32_t b) {
@@ -207,8 +214,8 @@ void check(const char* file, int min_expected_per_kind[N_KINDS]) {
     SimRun run;
     TEST_ASSERT_TRUE_MESSAGE(load(file, run), "file della corsa non trovato (tools/esporta_sim.py)");
     TEST_ASSERT_TRUE(run.n_nodes > 1 && run.n_nodes <= MAX_NODES);
-    std::vector<Episode> got[N_KINDS];
-    replay(run, got);
+    std::vector<Episode> got[N_KINDS], got_gnss;
+    replay(run, got, got_gnss);
     int diff = 0;
     for (int k = 0; k < N_KINDS; k++) {
         TEST_ASSERT_TRUE_MESSAGE(static_cast<int>(run.expected[k].size()) >= min_expected_per_kind[k],
@@ -216,6 +223,16 @@ void check(const char* file, int min_expected_per_kind[N_KINDS]) {
         printf("%s: %s simulatore %u episodi, firmware %u\n", file, KIND_NAME[k],
                static_cast<unsigned>(run.expected[k].size()), static_cast<unsigned>(got[k].size()));
         diff += compare(KIND_NAME[k], run.expected[k], got[k]);
+    }
+    // Senza posizioni il ramo GNSS non cambia nulla: stessi episodi della versione base, istante per istante.
+    TEST_ASSERT_EQUAL_MESSAGE(got[PRE].size(), got_gnss.size(), "senza GNSS le due versioni devono avere gli stessi pre-allarmi");
+    for (size_t i = 0; i < got_gnss.size(); i++) {
+        bool found = false;
+        for (const Episode& b : got[PRE]) {
+            found |= b.observer == got_gnss[i].observer && b.target == got_gnss[i].target &&
+                     b.start == got_gnss[i].start && b.end == got_gnss[i].end;
+        }
+        TEST_ASSERT_TRUE_MESSAGE(found, "pre-allarme GNSS senza corrispondente nella versione base");
     }
     printf("%s: scarto massimo fra gli istanti %d ms (tolleranza %d ms)\n", file, static_cast<int>(g_max_dev_ms),
            static_cast<int>(TOLERANCE_MS));
