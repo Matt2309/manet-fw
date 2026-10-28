@@ -6,8 +6,9 @@
 enum class Role : uint8_t { Runner = 0, Leader = 1 };
 
 // Il ruolo si cambia solo nella finestra dopo l'accensione e prima dello START.
-// t_ms e' il tempo dall'accensione.
-bool role_can_toggle(uint32_t t_ms, bool run_started);
+// fired_ms e' l'istante (dall'accensione) in cui la pressione lunga scatta: la finestra conta
+// dall'inizio della pressione, cioe' da fired_ms - BTN_LONG_MS.
+bool role_can_toggle(uint32_t fired_ms, bool run_started);
 
 Role role_toggled(Role r);
 

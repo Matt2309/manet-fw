@@ -96,8 +96,10 @@ void draw_row(int row, const char* s) {
     g_spr.print(s);
 }
 
-// Segnala la pressione lunga come cambio di ruolo solo nella finestra dopo l'accensione.
-bool in_role_window(const NodeStatus& st, uint32_t now) { return role_can_toggle(now, st.run_started); }
+// Una pressione che inizia adesso conterebbe come cambio di ruolo (finestra dopo l'accensione).
+bool in_role_window(const NodeStatus& st, uint32_t now) {
+    return role_can_toggle(now + BTN_LONG_MS, st.run_started);
+}
 
 void draw_display(uint32_t now, bool blink_on) {
     char s[48];
@@ -137,7 +139,9 @@ void draw_display(uint32_t now, bool blink_on) {
     } else if (ns.two_leaders) {
         draw_row(2, "DUE CAPOGRUPPO");
     } else if (in_role_window(ns, now)) {
-        draw_row(2, "premi a lungo=ruolo");
+        snprintf(s, sizeof(s), "premi 3s=ruolo (%lus)",
+                 static_cast<unsigned long>((ROLE_WINDOW_MS - now + 999) / 1000));
+        draw_row(2, s);
     } else {
         // Salti dal capogruppo e compagni sentiti di recente.
         char salti[8] = "--";

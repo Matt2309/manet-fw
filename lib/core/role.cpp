@@ -2,8 +2,9 @@
 
 #include "config.h"
 
-bool role_can_toggle(uint32_t t_ms, bool run_started) {
-    return !run_started && t_ms < ROLE_WINDOW_MS;
+bool role_can_toggle(uint32_t fired_ms, bool run_started) {
+    uint32_t pressed_ms = fired_ms >= BTN_LONG_MS ? fired_ms - BTN_LONG_MS : 0;
+    return !run_started && pressed_ms < ROLE_WINDOW_MS;
 }
 
 Role role_toggled(Role r) { return r == Role::Runner ? Role::Leader : Role::Runner; }

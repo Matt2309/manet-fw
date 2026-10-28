@@ -35,12 +35,13 @@ La registrazione parte da sola all'accensione, su un nuovo `/run_NNN.csv`.
 | Tasto USER | Effetto |
 |---|---|
 | pressione breve (< 1 s) | riga `EVT` numerata, il LED lampeggia |
-| pressione lunga (3 s), nei primi 10 s dopo l'accensione | alterna `CORR`/`CAPO` e lo salva in NVS |
+| pressione lunga (3 s) iniziata nei primi 10 s dopo l'accensione | alterna `CORR`/`CAPO` e lo salva in NVS |
 | pressione lunga (3 s), dopo | flush e chiusura, display `SALVATO`; un'altra pressione lunga apre un nuovo file |
 
 Il ruolo resta quello salvato anche dopo un riavvio (alla prima accensione e' `CORR`) e si cambia
 solo prima dello START. Non tenere premuto il tasto durante l'accensione: GPIO0 e' il pin di avvio.
-Sul display la riga 3 mostra, nella finestra dei 10 s, `premi a lungo=ruolo`; poi i salti dal
+La finestra conta dall'inizio della pressione: contano anche i 3 s della pressione, che puo' scattare dopo i 10 s.
+Sul display la riga 3 mostra, nella finestra, `premi 3s=ruolo (Ns)` con i secondi che restano; poi i salti dal
 capogruppo e i compagni sentiti; un capogruppo che sente un altro capogruppo mostra `DUE CAPOGRUPPO`.
 
 Da fermo i beacon continuano a partire, cosi' le altre schede non vedono perdite fittizie.

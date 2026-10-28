@@ -7,9 +7,14 @@ void setUp() {}
 void tearDown() {}
 
 void test_finestra_del_ruolo() {
+    // La finestra conta dall'inizio della pressione, non dallo scatto.
+    TEST_ASSERT_TRUE(role_can_toggle(BTN_LONG_MS + ROLE_WINDOW_MS - 1, false));
+    TEST_ASSERT_FALSE(role_can_toggle(BTN_LONG_MS + ROLE_WINDOW_MS, false));
+    // Pressione iniziata a 9,8 s, scattata a 12,8 s (il caso della prova al banco).
+    TEST_ASSERT_TRUE(role_can_toggle(12800, false));
+    // Scatto prima di BTN_LONG_MS: nessun underflow.
     TEST_ASSERT_TRUE(role_can_toggle(0, false));
-    TEST_ASSERT_TRUE(role_can_toggle(ROLE_WINDOW_MS - 1, false));
-    TEST_ASSERT_FALSE(role_can_toggle(ROLE_WINDOW_MS, false));
+    TEST_ASSERT_TRUE(role_can_toggle(BTN_LONG_MS - 1, false));
 }
 
 void test_no_cambio_a_corsa_avviata() {

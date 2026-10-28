@@ -109,9 +109,9 @@ void test_cambio_ruolo_nella_finestra() {
     Node n(1, Role::Runner);
     TEST_ASSERT_TRUE(n.toggle_role(2000));
     TEST_ASSERT_EQUAL(Role::Leader, n.role());
-    TEST_ASSERT_TRUE(n.toggle_role(ROLE_WINDOW_MS - 1));
+    TEST_ASSERT_TRUE(n.toggle_role(BTN_LONG_MS + ROLE_WINDOW_MS - 1));  // pressione iniziata in tempo
     TEST_ASSERT_EQUAL(Role::Runner, n.role());
-    TEST_ASSERT_FALSE(n.toggle_role(ROLE_WINDOW_MS));
+    TEST_ASSERT_FALSE(n.toggle_role(BTN_LONG_MS + ROLE_WINDOW_MS));
     TEST_ASSERT_EQUAL(Role::Runner, n.role());
 }
 
