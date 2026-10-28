@@ -294,3 +294,43 @@ def test_scarica_rileva_crc_errato(tmp_path, monkeypatch):
 
 def test_crc32_come_il_firmware():
     assert sc.crc32(b"123456789") == 0xCBF43926
+
+
+# --- prova F1 -------------------------------------------------------------------------------------------------
+
+def _scrivi_capogruppo(tmp_path, perdita_collegato=0.2):
+    """90 s di registro: BLE libero 0-30 s, collegato 30-60 s, libero 60-90 s; la scheda 2 a 2 Hz."""
+    import prova_f1  # noqa: F401  (verifica che si importi)
+    righe = ["# manet-fw 2.0.0 id=1 ruolo=CAPO mac=AA:BB:CC:DD:EE:01 canale=1 potenza_dbm=10.00 periodo_ms=500 jitter_ms=50 rate=11b_1M proto=2"]
+    righe.append("BLE,30000,connesso,0")
+    righe.append("BLE,60000,caduto,0")
+    for k in range(180):
+        t = k * 500
+        perso = 30000 <= t < 60000 and (k % int(1 / perdita_collegato) == 0)
+        if not perso:
+            righe.append(f"RX,{t},2,{k},-60,")
+    p = tmp_path / "run_001.csv"
+    p.write_text("\n".join(righe) + "\n")
+    return p
+
+
+def test_prova_f1_confronta_collegato_e_libero(tmp_path):
+    import prova_f1
+    righe = prova_f1.analizza(_scrivi_capogruppo(tmp_path))
+    stati = [(r["collegato"], round(r["durata_s"])) for r in righe]
+    assert stati == [(False, 30), (True, 30), (False, 29)] or stati == [(False, 30), (True, 30), (False, 30)]
+    libero, collegato = righe[0], righe[1]
+    assert libero["persi_pct"] < 2.0
+    assert 15.0 < collegato["persi_pct"] < 25.0      # 1 beacon su 5 perso
+    tot = prova_f1.totali(righe)
+    assert tot[True]["persi_pct"] > tot[False]["persi_pct"]
+
+
+def test_prova_f1_ignora_gli_intervalli_brevi_e_le_righe_troncate(tmp_path):
+    import prova_f1
+    p = _scrivi_capogruppo(tmp_path)
+    p.write_text(p.read_text() + "RX,99999,2,5,-6")      # troncata
+    assert len(prova_f1.analizza(p)) == 3
+    corto = tmp_path / "corto.csv"
+    corto.write_text("# manet-fw 2.0.0 id=1 periodo_ms=500\n" + "".join(f"RX,{k*500},2,{k},-60,\n" for k in range(20)))
+    assert prova_f1.analizza(corto) == []                # 10 s: troppo poco

@@ -36,3 +36,23 @@ int run_first_free(const int* used, size_t count) {
     }
     return -1;
 }
+
+int corsa_number(const char* name) {
+    if (name == nullptr) return -1;
+    if (name[0] == '/') name++;
+    // "corsa_" + 3 cifre + ".bin"
+    if (strlen(name) != 13) return -1;
+    if (strncmp(name, "corsa_", 6) != 0 || strcmp(name + 9, ".bin") != 0) return -1;
+    int n = 0;
+    for (int i = 6; i < 9; i++) {
+        if (name[i] < '0' || name[i] > '9') return -1;
+        n = n * 10 + (name[i] - '0');
+    }
+    return (n >= 1 && n <= RUN_MAX) ? n : -1;
+}
+
+bool corsa_name(int n, char* out, size_t cap) {
+    if (n < 1 || n > RUN_MAX) return false;
+    int w = snprintf(out, cap, "/corsa_%03d.bin", n);
+    return w > 0 && static_cast<size_t>(w) < cap;
+}

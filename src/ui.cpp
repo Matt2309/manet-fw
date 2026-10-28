@@ -8,6 +8,7 @@
 
 #include "app.h"
 #include "battery.h"
+#include "ble.h"
 #include "button.h"
 #include "config.h"
 #include "logger.h"
@@ -179,6 +180,12 @@ void draw_display(uint32_t now, bool blink_on, const NodeStatus& ns, Warning war
             draw_row(2, s);
         } else if (ns.pre > 0 || ns.lost > 0) {
             snprintf(s, sizeof(s), "PRE %d PERSI %d", ns.pre, ns.lost);
+            draw_row(2, s);
+        } else if (ns.role == Role::Leader) {
+            // Capogruppo: stato del BLE e corridori in tabella.
+            BleState b = ble_state();
+            snprintf(s, sizeof(s), "BLE %s gruppo %d", b == BleState::Connected ? "collegato" : b == BleState::Advertising ? "attesa" : "spento",
+                     ns.group);
             draw_row(2, s);
         } else {
             char salti[8] = "--";

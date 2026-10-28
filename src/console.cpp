@@ -52,9 +52,9 @@ bool write_all(const uint8_t* p, size_t n) {
     return true;
 }
 
-// Nome file accettato solo se e' un run_NNN.csv: niente percorsi arbitrari.
+// Nome file accettato solo se e' un run_NNN.csv o un corsa_NNN.bin: niente percorsi arbitrari.
 bool arg_path(const char* arg, char* full, size_t cap, char* name, size_t name_cap) {
-    if (run_number(arg) < 0) return false;
+    if (run_number(arg) < 0 && corsa_number(arg) < 0) return false;
     if (arg[0] == '/') arg++;
     snprintf(name, name_cap, "%s", arg);
     snprintf(full, cap, "%s/%s", MOUNT, arg);

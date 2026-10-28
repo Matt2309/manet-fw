@@ -52,6 +52,23 @@ void test_tutti_occupati() {
     TEST_ASSERT_EQUAL(-1, run_first_free(tutti, RUN_MAX));
 }
 
+void test_nomi_dei_file_della_corsa() {
+    TEST_ASSERT_EQUAL(4, corsa_number("corsa_004.bin"));
+    TEST_ASSERT_EQUAL(4, corsa_number("/corsa_004.bin"));
+    TEST_ASSERT_EQUAL(999, corsa_number("corsa_999.bin"));
+    TEST_ASSERT_EQUAL(-1, corsa_number("corsa_000.bin"));
+    TEST_ASSERT_EQUAL(-1, corsa_number("corsa_004.csv"));
+    TEST_ASSERT_EQUAL(-1, corsa_number("run_004.csv"));
+    TEST_ASSERT_EQUAL(-1, corsa_number("corsa_0a4.bin"));
+    TEST_ASSERT_EQUAL(-1, corsa_number("../corsa_004.bin"));
+    TEST_ASSERT_EQUAL(-1, corsa_number(nullptr));
+    char b[24];
+    TEST_ASSERT_TRUE(corsa_name(12, b, sizeof(b)));
+    TEST_ASSERT_EQUAL_STRING("/corsa_012.bin", b);
+    TEST_ASSERT_FALSE(corsa_name(1000, b, sizeof(b)));
+    TEST_ASSERT_FALSE(corsa_name(1, b, 8));
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_numero_dal_nome);
@@ -59,5 +76,6 @@ int main() {
     RUN_TEST(test_formato_nome);
     RUN_TEST(test_primo_libero);
     RUN_TEST(test_tutti_occupati);
+    RUN_TEST(test_nomi_dei_file_della_corsa);
     return UNITY_END();
 }

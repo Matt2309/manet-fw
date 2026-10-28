@@ -2,9 +2,9 @@
 
 Firmware per la **Heltec Wireless Tracker V1.1** (ESP32-S3FN8). Le schede trasmettono beacon
 ESP-NOW come il Blocco 3 di `manet-sim` e registrano tutto su LittleFS; l'analisi si fa dopo,
-offline. La logica (pacchetti, vicini, ruolo) e' C++ puro in `lib/core`, testata con
-`pio test -e native`; in `src/` restano gli adattatori verso l'hardware. Il firmware e' in
-costruzione per fasi (rilevatore, GNSS, percorso dei dati, BLE): per ora fa quello che si e' detto sopra.
+offline. La logica (pacchetti, vicini, rilevatore, corsa, tabella del gruppo, codec BLE) e' C++ puro in `lib/core`, testata
+con `pio test -e native` (compresa una rete di `Node` in memoria); in `src/` restano gli adattatori verso l'hardware.
+Lo stesso firmware gira su tutte le schede: il ruolo (corridore o capogruppo) si sceglie con il tasto.
 
 ## Compilare e caricare
 
@@ -67,6 +67,48 @@ Sotto il 5% di spazio libero la scheda smette di scrivere e mostra `MEMORIA PIEN
 - **Allarmi**: a ogni cambio del rilevatore (pre-allarme, perso, fine) parte un allarme a tutti, rilanciato una volta da chi
   lo riceve; l'SOS si ripete ogni 10 s. Gli allarmi viaggiano anche dentro la telemetria.
 - **Prima dello START** le schede mandano solo beacon: niente telemetria e niente allarmi.
+
+## Capogruppo e BLE
+
+Il capogruppo tiene una **tabella del gruppo** (una riga per corridore, compreso se stesso, aggiornata da beacon, allarmi e
+telemetria; un corridore sentito resta fino allo STOP) e parla con l'app via BLE. Stato di un corridore, per precedenza:
+SOS, perso, pre-allarme, ok. Il pre-allarme vale con un osservatore; il **perso solo se lo confermano almeno 2 schede** (una
+sola se il gruppo ne ha 2). R e' la media dei segnali fusi riportati negli ultimi 5 s.
+
+Chiudere un allarme dall'app resta sul capogruppo: non si ripropone finche' il corridore non torna normale e poi si
+stacca di nuovo (un SOS chiuso, finche' il corridore non smette di segnalarlo). Un allarme che si spegne da solo manda
+l'evento RIENTRO; l'SOS si chiude solo a mano.
+
+**BLE** (libreria del core Arduino, NimBLE; si accende solo se la scheda e' capogruppo): un servizio con tre
+caratteristiche, UUID in `include/config.h` (`BLE_*_UUID`, da usare uguali nell'app), MTU 247:
+
+| caratteristica | verso | contenuto |
+|---|---|---|
+| dati | nodo -> app, notify | STATO ogni 5 s (`seq` 0 e `t` riservato prima dello START), CONFERMA |
+| urgenti | nodo -> app, notify | EVENTO subito |
+| comandi | app -> nodo, write | START, STOP, CHIUDI_ALLARME, RIPRENDI_DA |
+
+Il formato dei byte e' quello di `docs/protocollo_ble.md` di manet-mobile e lo conosce solo `lib/core/ble_codec`.
+L'intervallo di connessione e' lungo (`BLE_CONN_*`, provvisorio: da confermare con la prova F1).
+
+**File della corsa**: a ogni START il capogruppo apre `/corsa_NNN.bin` e vi scrive, sincronizzando su flash, ogni STATO e
+EVENTO con seq **prima** di mandarlo. `RIPRENDI_DA(n)`: CONFERMA con l'ultimo seq disponibile, poi rimanda in ordine i
+messaggi con seq maggiore di n mentre quelli nuovi continuano a partire. Se il capogruppo si riavvia a corsa in corso
+(bandiera in NVS) riapre il file e riprende dall'ultimo seq; T0 lo ricava dai beacon dei compagni. I file `corsa_*.bin` si
+scaricano come i `run_*.csv` (`get`, `rm`).
+
+### Prova F1 (il BLE disturba la ricezione dei beacon?)
+
+Con il capogruppo acceso e le altre schede vicine (anche senza START: lo STATO parte comunque ogni 5 s), collegare l'app o
+nRF Connect per qualche minuto, scollegare, ricollegare. Poi, sul file del capogruppo:
+
+```
+python tools/scarica.py
+python tools/prova_f1.py dati/<data>/scheda_<id>/run_NNN.csv
+```
+
+Lo script usa le righe `BLE` (connesso/caduto) e `RX` e stampa, per ogni intervallo con BLE collegato o libero e per ogni
+scheda, beacon ricevuti, attesi e persi %, piu' il totale per i due stati.
 
 ### Prova F2 (conferma a 1 Mbit/s)
 

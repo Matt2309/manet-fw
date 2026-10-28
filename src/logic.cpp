@@ -7,9 +7,12 @@
 #include <string.h>
 
 #include "app.h"
+#include "ble.h"
+#include "ble_codec.h"
 #include "config.h"
 #include "logger.h"
 #include "radio.h"
+#include "runlog.h"
 
 namespace {
 
@@ -80,6 +83,19 @@ void drain_node(uint32_t now) {
     }
     NodeLog l;
     while (g_node_logic->pop_log(l)) post_node_log(l);
+    // Capogruppo: messaggi per l'app (e per il file della corsa) e comandi arrivati dall'app.
+    BleMsg m;
+    while (g_node_logic->pop_ble(m)) ble_send(m);
+    uint8_t cmd[16];
+    size_t n;
+    while ((n = ble_take_command(cmd, sizeof(cmd))) > 0) {
+        ble::Command c;
+        if (ble::decode_command(cmd, n, c)) {
+            g_node_logic->on_app_command(c, now);
+        } else {
+            logger::post_sys("comando BLE non valido (%u byte)", static_cast<unsigned>(n));
+        }
+    }
 }
 
 void handle_rx(const radio::RxPacket& p) {
@@ -184,6 +200,7 @@ void apply_command(LogicCmd cmd, uint32_t now) {
     switch (cmd) {
         case LogicCmd::ToggleRole:
             toggle_role(now);
+            ble_enable(g_node_logic->role() == Role::Leader);  // il BLE serve solo al capogruppo
             break;
         case LogicCmd::ToggleSos:
             if (g_node_logic->toggle_sos(now)) logger::post_sys("sos %s", g_node_logic->status(now).sos ? "attivo" : "annullato");
@@ -271,13 +288,19 @@ Role logic_init() {
     static Node node(g_node.id, role);
     node.seed(esp_random());
     g_node_logic = &node;
+    // Capogruppo riavviato a corsa in corso: si riprende il file della corsa e il seq. Il T0 arriva dai beacon.
+    uint32_t last_seq;
+    if (role == Role::Leader && runlog::resume(last_seq)) node.resume_ble_seq(last_seq);
     g_cmd_queue = xQueueCreate(8, sizeof(uint8_t));
     g_gnss_queue = xQueueCreate(4, sizeof(GnssSample));
     g_status_queue = xQueueCreate(1, sizeof(NodeStatus));
     return role;
 }
 
-void logic_start() { xTaskCreatePinnedToCore(logic_task, "logic", 8192, nullptr, configMAX_PRIORITIES - 2, nullptr, 1); }
+void logic_start() {
+    ble_enable(g_node_logic->role() == Role::Leader);
+    xTaskCreatePinnedToCore(logic_task, "logic", 8192, nullptr, configMAX_PRIORITIES - 2, nullptr, 1);
+}
 
 void logic_post_gnss(const GnssSample& s) {
     if (g_gnss_queue != nullptr) xQueueSend(g_gnss_queue, &s, 0);
