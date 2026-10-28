@@ -23,6 +23,7 @@ constexpr uint32_t BEACON_JITTER_MS = 50;  // uniforme in [-J, +J]
 
 // --- Logica e ruolo ----------------------------------------------------------
 constexpr uint32_t LOGIC_TICK_MS = 100;       // controlli a tempo
+constexpr uint32_t LOGIC_MAX_WAIT_MS = 20;    // la logica si risveglia almeno cosi' spesso (rilanci con ritardo breve)
 constexpr int RX_QUEUE_LEN = 32;              // pacchetti ESP-NOW in attesa della logica
 constexpr uint32_t HEARD_WINDOW_MS = 2000;    // un compagno e' "sentito" se l'ultimo beacon e' piu' recente
 constexpr uint32_t LEADER_CONFLICT_MS = 2000; // un altro capogruppo e' "presente" se l'ultimo beacon e' piu' recente
@@ -75,6 +76,34 @@ constexpr int RX_HISTORY_LEN = RELEASE_TIME_MS / (BEACON_PERIOD_MS - BEACON_JITT
 constexpr int RELEASE_MIN_BEACONS =
     static_cast<int>(RELEASE_RECEPTION * RELEASE_TIME_MS / BEACON_PERIOD_MS - 1e-9) + 1;
 
+// --- Corsa e percorso dei dati verso il capogruppo -----------------------------
+// Due T0 stimati che differiscono meno di cosi' sono la stessa corsa (i secondi da T0 nei beacon sono interi).
+constexpr uint32_t RUN_T0_TOLERANCE_MS = 3000;
+// Compagno "sentito bene" e candidato per l'invio: stima del segnale sopra questo valore, sentito negli ultimi HEARD_WINDOW_MS.
+constexpr double ROUTE_MIN_DBM = -88.0;
+// Telemetria: un record proprio al secondo; la coda tiene 10 minuti.
+constexpr uint32_t TEL_PERIOD_MS = 1000;
+constexpr int TEL_QUEUE_LEN = 600;
+constexpr uint32_t TEL_DEGRADED_PERIOD_MS = 5000;  // a coda piena un record proprio ogni cosi'
+constexpr int TEL_ATTEMPTS = 3;                    // tentativi su un candidato prima del successivo
+constexpr uint32_t TEL_MIN_GAP_MS = 100;           // fra due invii di telemetria
+constexpr uint32_t TEL_RESULT_TIMEOUT_MS = 1000;   // conferma ESP-NOW mancante = tentativo fallito
+constexpr uint32_t TEL_QUEUE_LOG_MS = 5000;        // riga TEL "coda" quando non ci sono candidati
+constexpr uint32_t TEL_RETRY_MS = 1000;            // dopo aver provato tutti i candidati si riscegliera' a questo intervallo
+constexpr int SEEN_RECORD_WINDOW = 1024;           // secondi da T0 ricordati per mittente, contro i doppioni
+constexpr uint32_t SOS_PERIOD_MS = 10000;          // l'SOS si ripete a questo intervallo
+constexpr uint32_t RELAY_JITTER_MS = 40;           // ritardo casuale (0..J) del rilancio di allarmi e comandi
+constexpr uint32_t DISPLAY_ON_MS = 10000;          // schermo acceso dopo un tasto o un avviso
+constexpr uint32_t HEAP_LOG_PERIOD_MS = 60000;     // riga SYS con l'heap libero
+// Prova F2 (opzione di build tracker_f2): ogni F2_PERIOD_MS un unicast con conferma da circa 223 byte a un compagno a rotazione.
+#ifdef MANET_F2
+constexpr bool F2_TEST = true;
+#else
+constexpr bool F2_TEST = false;
+#endif
+constexpr uint32_t F2_PERIOD_MS = 1000;
+constexpr int F2_RECORDS = 2;                      // record da 19 vicini e posizione: 109 byte ciascuno
+
 // --- Registrazione -----------------------------------------------------------
 constexpr uint32_t FLUSH_INTERVAL_MS = 5000;
 constexpr uint32_t BAT_LOG_INTERVAL_MS = 30000;
@@ -93,6 +122,7 @@ constexpr uint32_t BTN_SHORT_MAX_MS = 1000;
 constexpr uint32_t BTN_LONG_MS = 3000;
 constexpr uint32_t BTN_POLL_MS = 10;
 constexpr uint32_t LED_BLINK_MS = 100;
+constexpr uint32_t SOS_LED_HALF_PERIOD_MS = 250;  // il LED lampeggia a questo ritmo finche' l'SOS e' attivo
 
 // --- Display e batteria ------------------------------------------------------
 constexpr uint32_t DISPLAY_PERIOD_MS = 500;  // 2 Hz
