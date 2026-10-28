@@ -95,6 +95,31 @@ constexpr uint32_t SOS_PERIOD_MS = 10000;          // l'SOS si ripete a questo i
 constexpr uint32_t RELAY_JITTER_MS = 40;           // ritardo casuale (0..J) del rilancio di allarmi e comandi
 constexpr uint32_t DISPLAY_ON_MS = 10000;          // schermo acceso dopo un tasto o un avviso
 constexpr uint32_t HEAP_LOG_PERIOD_MS = 60000;     // riga SYS con l'heap libero
+// --- Capogruppo: tabella del gruppo -----------------------------------------------------------------------
+constexpr uint32_t R_REPORT_WINDOW_MS = 5000;     // R di un corridore = media dei segnali fusi riportati in questa finestra
+constexpr uint32_t OBSERVER_VALID_MS = 30000;     // l'allarme riportato da un osservatore silenzioso per tanto smette di contare
+constexpr uint32_t SOS_HOLD_MS = SOS_PERIOD_MS * 5 / 2;  // un SOS e' "in corso" finche' l'ultima indicazione e' piu' recente di cosi'
+constexpr uint32_t RECORD_FRESH_S = 5;            // un record piu' vecchio non descrive lo stato di adesso
+constexpr int PRE_MIN_OBSERVERS = 1;              // osservatori per il pre-allarme
+constexpr int LOST_MIN_OBSERVERS = 2;             // osservatori per il nodo perso (1 se il gruppo ha 2 sole schede)
+constexpr uint32_t STATE_PERIOD_MS = 5000;        // STATO sul BLE
+
+// --- BLE (solo capogruppo) -----------------------------------------------------------------------------------
+// UUID scelti per questo progetto: l'app li deve usare uguali (vedi docs/protocollo_ble.md dell'app).
+constexpr const char* BLE_SERVICE_UUID = "a1f0c0de-4d41-4e45-8001-6d616e657431";
+constexpr const char* BLE_DATA_UUID = "a1f0c0de-4d41-4e45-8002-6d616e657431";      // notify: STATO, CONFERMA
+constexpr const char* BLE_URGENT_UUID = "a1f0c0de-4d41-4e45-8003-6d616e657431";    // notify: EVENTO
+constexpr const char* BLE_COMMAND_UUID = "a1f0c0de-4d41-4e45-8004-6d616e657431";   // write: comandi
+constexpr uint16_t BLE_MTU = 247;
+// Intervallo di connessione lungo (basta uno STATO ogni 5 s): unita' di 1,25 ms e di 10 ms. Valori da confermare con la prova F1.
+constexpr uint16_t BLE_CONN_INTERVAL_MIN = 400;   // 500 ms
+constexpr uint16_t BLE_CONN_INTERVAL_MAX = 800;   // 1000 ms
+constexpr uint16_t BLE_CONN_LATENCY = 0;
+constexpr uint16_t BLE_CONN_TIMEOUT = 600;        // 6 s
+constexpr uint32_t BLE_NOTIFY_GAP_MS = 20;        // pausa fra due notify (rinvio dopo RIPRENDI_DA)
+constexpr const char* RUN_NVS_ACTIVE_KEY = "corsa_att";  // bandiera NVS: corsa in corso, per riprendere dopo un riavvio
+constexpr const char* RUN_NVS_COUNT_KEY = "corsa_n";     // contatore dei file della corsa
+
 // Prova F2 (opzione di build tracker_f2): ogni F2_PERIOD_MS un unicast con conferma da circa 223 byte a un compagno a rotazione.
 #ifdef MANET_F2
 constexpr bool F2_TEST = true;

@@ -123,6 +123,7 @@ bool Node::on_beacon(const uint8_t* data, size_t len, int8_t rssi, uint32_t now_
         leader_seen_ = true;
         leader_seen_ms_ = now_ms;
     }
+    if (role_ == Role::Leader) leader_.on_beacon(b, now_ms);
     apply_run(run_.on_beacon(b, now_ms), now_ms);
     return true;
 }
@@ -142,9 +143,13 @@ void Node::on_telemetry(const uint8_t* data, size_t len, uint32_t now_ms) {
 }
 
 void Node::consume_record(const packets::TelRecord& r, uint32_t now_ms) {
-    (void)now_ms;
-    if (role_ == Role::Leader) return;  // la tabella del gruppo si aggiorna qui (capogruppo)
-    queue_.push(r);
+    if (role_ != Role::Leader) {
+        queue_.push(r);
+        return;
+    }
+    // Il capogruppo e' la destinazione: il record aggiorna la tabella. L'eta' e' quella stimata dal capogruppo.
+    uint32_t run_s = run_.seconds(now_ms);
+    leader_.on_record(r, now_ms, run_s > r.t_s ? run_s - r.t_s : 0);
 }
 
 void Node::on_alarm(const uint8_t* data, size_t len, uint32_t now_ms) {
@@ -153,6 +158,7 @@ void Node::on_alarm(const uint8_t* data, size_t len, uint32_t now_ms) {
     if (!alarm_seen_.add(a.sender, a.seq)) return;
     log_alm(now_ms, AlmAction::Received, a.sender, a.seq, a.runner, static_cast<uint8_t>(a.type));
     if (!run_.running()) return;  // prima dello START e dopo lo STOP non ci sono allarmi
+    if (role_ == Role::Leader) leader_.on_alarm(a, now_ms);
     // Rilancio unico, uguale all'originale (il creatore resta nell'intestazione), con un piccolo ritardo casuale.
     if (push_out(false, 0, data, len, now_ms + rand_below(RELAY_JITTER_MS + 1)) >= 0) {
         log_alm(now_ms, AlmAction::Relayed, a.sender, a.seq, a.runner, static_cast<uint8_t>(a.type));
@@ -176,11 +182,21 @@ void Node::on_command(const uint8_t* data, size_t len, uint32_t now_ms) {
 // --- Corsa ---------------------------------------------------------------------------------------------------
 
 void Node::apply_run(Run::Change change, uint32_t now_ms) {
-    if (change == Run::Change::Started) begin_run(now_ms);
+    if (change == Run::Change::Started) begin_run(now_ms, false);
     if (change == Run::Change::Stopped) end_run();
 }
 
-void Node::begin_run(uint32_t now_ms) {
+void Node::begin_run(uint32_t now_ms, bool local) {
+    if (role_ == Role::Leader) {
+        leader_.clear_alarms();
+        next_state_ms_ = now_ms;
+        // Un riavvio a corsa in corso riprende il file e il seq; ogni altro START apre un file nuovo e riparte da 1.
+        if (local || !resume_pending_) {
+            ble_seq_ = 0;
+            push_ble(BleMsg::Kind::NewRun, false, nullptr, 0);
+        }
+        resume_pending_ = false;
+    }
     queue_.clear();
     seen_records_.clear();
     memset(last_alarm_code_, 0, sizeof(last_alarm_code_));
@@ -192,6 +208,10 @@ void Node::begin_run(uint32_t now_ms) {
 }
 
 void Node::end_run() {
+    if (role_ == Role::Leader) {
+        leader_.reset();
+        push_ble(BleMsg::Kind::EndRun, false, nullptr, 0);
+    }
     queue_.clear();
     sos_ = false;
     inflight_.active = false;
@@ -200,7 +220,8 @@ void Node::end_run() {
 Node::CmdResult Node::start_run(uint32_t now_ms) {
     if (role_ != Role::Leader) return CmdResult::NotLeader;
     if (!run_.start(now_ms)) return CmdResult::Already;
-    begin_run(now_ms);
+    resume_pending_ = false;
+    begin_run(now_ms, true);
     packets::Command c = {id_, cmd_seq_++, packets::Cmd::Start, 0};
     uint8_t buf[packets::MAX_SIZE];
     push_out(false, 0, buf, packets::pack_command(c, buf, sizeof(buf)), now_ms);
@@ -232,6 +253,7 @@ bool Node::toggle_sos(uint32_t now_ms) {
 bool Node::toggle_role(uint32_t now_ms) {
     if (!role_can_toggle(now_ms, run_.running())) return false;
     role_ = role_toggled(role_);
+    if (role_ == Role::Leader) leader_.set_self(id_);
     hops_ = compute_hops(now_ms);
     return true;
 }
@@ -467,6 +489,100 @@ void Node::track_alarms(uint32_t now_ms) {
     }
 }
 
+// --- Capogruppo e BLE ----------------------------------------------------------------------------------------
+
+bool Node::pop_ble(BleMsg& m) {
+    if (ble_count_ == 0) return false;
+    m = ble_[ble_head_];
+    ble_head_ = (ble_head_ + 1) % BLE_QUEUE_LEN;
+    ble_count_--;
+    return true;
+}
+
+void Node::push_ble(BleMsg::Kind kind, bool save, const uint8_t* data, size_t len) {
+    if (ble_count_ == BLE_QUEUE_LEN) {  // piena: si perde il messaggio piu' vecchio (un STATO si rifa' fra poco)
+        ble_head_ = (ble_head_ + 1) % BLE_QUEUE_LEN;
+        ble_count_--;
+    }
+    BleMsg& m = ble_[(ble_head_ + ble_count_) % BLE_QUEUE_LEN];
+    ble_count_++;
+    m = BleMsg{};
+    m.kind = kind;
+    m.save = save;
+    m.len = static_cast<uint16_t>(len);
+    if (len > 0) memcpy(m.data, data, len);
+}
+
+void Node::resume_ble_seq(uint32_t last_seq) {
+    ble_seq_ = last_seq;
+    resume_pending_ = true;
+}
+
+// STATO: con la corsa avviata ha seq e secondi da T0 e si salva; altrimenti seq 0 e t riservato (vista live, non salvata).
+void Node::push_state(uint32_t now_ms) {
+    ble::Row rows[ble::MAX_RUNNERS];
+    size_t n = leader_.snapshot(now_ms, rows, ble::MAX_RUNNERS);
+    uint8_t buf[ble::MAX_MESSAGE_SIZE];
+    size_t len;
+    bool running = run_.running();
+    if (running) {
+        len = ble::encode_state(++ble_seq_, (now_ms - run_.t0()) / 1000, rows, n, buf, sizeof(buf));
+    } else {
+        len = ble::encode_state(0, ble::T_NOT_STARTED, rows, n, buf, sizeof(buf));
+    }
+    if (len > 0) push_ble(BleMsg::Kind::Data, running, buf, len);
+}
+
+void Node::lead_tick(uint32_t now_ms) {
+    if (due(now_ms, next_self_ms_)) {
+        next_self_ms_ = now_ms + 1000;
+        leader_.on_self(static_cast<uint8_t>(battery_pct_), sos_, now_ms);
+    }
+    if (run_.running()) {
+        Leader::Event ev[Leader::MAX_EVENTS];
+        size_t n = leader_.tick(now_ms, (now_ms - run_.t0()) / 1000, ev);
+        for (size_t i = 0; i < n; i++) {
+            uint8_t buf[ble::EVENT_SIZE];
+            size_t len = ble::encode_event(++ble_seq_, ev[i].t_s, ev[i].id, ev[i].type, buf, sizeof(buf));
+            if (len > 0) push_ble(BleMsg::Kind::Urgent, true, buf, len);
+        }
+    }
+    if (due(now_ms, next_state_ms_)) {
+        next_state_ms_ = now_ms + STATE_PERIOD_MS;
+        push_state(now_ms);
+    }
+}
+
+void Node::on_app_command(const ble::Command& c, uint32_t now_ms) {
+    uint8_t buf[ble::CONFIRM_RESUME_SIZE];
+    bool leader = role_ == Role::Leader;
+    switch (c.code) {
+        case ble::CommandCode::Start:
+        case ble::CommandCode::Stop: {
+            // Idempotenti: un START a corsa avviata (o uno STOP a corsa ferma) e' confermato senza cambiare nulla.
+            bool is_start = c.code == ble::CommandCode::Start;
+            CmdResult r = is_start ? start_run(now_ms) : stop_run(now_ms);
+            push_ble(BleMsg::Kind::Data, false, buf, ble::encode_confirm(c.code, r != CmdResult::NotLeader, buf, sizeof(buf)));
+            if (is_start && r == CmdResult::Done) next_state_ms_ = now_ms;  // lo STATO con seq 1 parte subito
+            break;
+        }
+        case ble::CommandCode::CloseAlarm:
+            push_ble(BleMsg::Kind::Data, false, buf,
+                     ble::encode_confirm(c.code, leader && leader_.close_alarm(c.id, c.kind, now_ms), buf, sizeof(buf)));
+            break;
+        case ble::CommandCode::ResumeFrom:
+            // La CONFERMA porta l'ultimo seq disponibile; poi si rimandano in ordine i messaggi successivi.
+            push_ble(BleMsg::Kind::Data, false, buf, ble::encode_confirm_resume(leader, ble_seq_, buf, sizeof(buf)));
+            if (leader && ble_seq_ > c.last_seq) {
+                push_ble(BleMsg::Kind::Resend, false, nullptr, 0);
+                BleMsg& m = ble_[(ble_head_ + ble_count_ - 1) % BLE_QUEUE_LEN];
+                m.from_seq = c.last_seq;
+                m.to_seq = ble_seq_;
+            }
+            break;
+    }
+}
+
 // --- Controlli a tempo ---------------------------------------------------------------------------------------
 
 size_t Node::tick(uint32_t now_ms, DetEvent* det) {
@@ -477,6 +593,7 @@ size_t Node::tick(uint32_t now_ms, DetEvent* det) {
         f2_tick(now_ms);
         return n;
     }
+    if (role_ == Role::Leader) lead_tick(now_ms);
     if (!run_.running()) return n;
 
     if (due(now_ms, next_record_ms_)) {
@@ -506,6 +623,7 @@ NodeStatus Node::status(uint32_t now_ms) const {
     s.isolated = run_.running() && role_ != Role::Leader && hops_ == packets::HOPS_ISOLATED;
     s.pre = detector_.pre_count();
     s.lost = detector_.lost_count();
+    s.group = role_ == Role::Leader ? static_cast<uint8_t>(leader_.size()) : 0;
     s.two_leaders = role_ == Role::Leader && !run_.running() && leader_seen_ &&
                     now_ms - leader_seen_ms_ <= LEADER_CONFLICT_MS;
     return s;

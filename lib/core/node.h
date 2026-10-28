@@ -8,8 +8,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "ble_codec.h"
 #include "config.h"
 #include "detector.h"
+#include "leader.h"
 #include "log_types.h"
 #include "neighbors.h"
 #include "packets.h"
@@ -24,6 +26,24 @@ struct Outgoing {
     uint8_t dest;   // ID del destinatario (unicast)
     uint16_t len;
     uint8_t data[packets::MAX_SIZE];
+};
+
+// Messaggio per il task BLE (solo capogruppo). La logica assegna il seq e codifica i byte col codec; il task BLE
+// scrive nel file della corsa (se save) e poi li manda.
+struct BleMsg {
+    enum class Kind : uint8_t {
+        Data,     // canale dati: STATO o CONFERMA
+        Urgent,   // canale urgenti: EVENTO
+        NewRun,   // START: nuovo file della corsa
+        EndRun,   // STOP: chiude il file
+        Resend,   // RIPRENDI_DA: rimanda i messaggi salvati con from_seq < seq <= to_seq
+    };
+    Kind kind;
+    bool save;
+    uint32_t from_seq;
+    uint32_t to_seq;
+    uint16_t len;
+    uint8_t data[ble::MAX_MESSAGE_SIZE];
 };
 
 // Riga di registro prodotta dalla logica (l'adattatore la scrive nel file).
@@ -71,6 +91,7 @@ struct NodeStatus {
     bool two_leaders;     // capogruppo che sente un altro capogruppo prima dello START
     uint8_t pre;          // compagni in pre-allarme
     uint8_t lost;         // compagni dichiarati persi
+    uint8_t group;        // capogruppo: corridori in tabella
 };
 
 class Node {
@@ -78,7 +99,9 @@ public:
     enum class CmdResult : uint8_t { Done, Already, NotLeader };
 
     Node(uint8_t id, Role role)
-        : id_(id), role_(role), detector_(id), hops_(role == Role::Leader ? 0 : packets::HOPS_ISOLATED) {}
+        : id_(id), role_(role), detector_(id), hops_(role == Role::Leader ? 0 : packets::HOPS_ISOLATED) {
+        if (role == Role::Leader) leader_.set_self(id);
+    }
 
     // Modalita' prova F2 (di default quella della build, vedi config.h): invece della telemetria, un unicast al secondo.
     void set_f2(bool on) { f2_ = on; }
@@ -103,6 +126,13 @@ public:
     bool pop_outgoing(uint32_t now_ms, Outgoing& o);
     // Esito dell'ultimo invio unicast (conferma ESP-NOW).
     void on_send_result(bool ok, uint32_t now_ms);
+    // Prossimo messaggio per il BLE (capogruppo).
+    bool pop_ble(BleMsg& m);
+    // Comando ricevuto dall'app via BLE (capogruppo): lo esegue e prepara la CONFERMA.
+    void on_app_command(const ble::Command& c, uint32_t now_ms);
+    // Dopo un riavvio a corsa in corso: l'ultimo seq salvato nel file. Il primo T0 ricavato dai compagni
+    // continua quella corsa invece di aprirne una nuova.
+    void resume_ble_seq(uint32_t last_seq);
     // Prossima riga di registro prodotta dalla logica.
     bool pop_log(NodeLog& item);
 
@@ -126,6 +156,7 @@ public:
 private:
     static constexpr size_t OUTBOX_LEN = 10;
     static constexpr size_t LOG_LEN = 32;
+    static constexpr size_t BLE_QUEUE_LEN = 12;
 
     struct OutEntry {
         bool used;
@@ -162,8 +193,11 @@ private:
     void on_command(const uint8_t* data, size_t len, uint32_t now_ms);
 
     void apply_run(Run::Change change, uint32_t now_ms);
-    void begin_run(uint32_t now_ms);
+    void begin_run(uint32_t now_ms, bool local);
     void end_run();
+    void push_ble(BleMsg::Kind kind, bool save, const uint8_t* data, size_t len);
+    void push_state(uint32_t now_ms);
+    void lead_tick(uint32_t now_ms);
 
     uint8_t compute_hops(uint32_t now_ms) const;
     size_t candidates(uint32_t now_ms, uint8_t out[2]) const;
@@ -220,6 +254,16 @@ private:
     NodeLog log_[LOG_LEN] = {};
     size_t log_head_ = 0;
     size_t log_count_ = 0;
+    // Capogruppo
+    Leader leader_;
+    uint32_t ble_seq_ = 0;          // ultimo seq assegnato a STATO/EVENTO
+    bool resume_pending_ = false;
+    uint32_t next_state_ms_ = 0;
+    uint32_t next_self_ms_ = 0;
+    BleMsg ble_[BLE_QUEUE_LEN] = {};
+    size_t ble_head_ = 0;
+    size_t ble_count_ = 0;
+
     uint32_t rng_ = 2463534242u;
     bool f2_ = F2_TEST;
 };
