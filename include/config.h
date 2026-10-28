@@ -50,6 +50,25 @@ constexpr double RELEASE_RECEPTION = 0.8;
 // Nodo perso: nessun beacon da questo tempo.
 constexpr uint32_t LOST_SILENCE_MS = 10000;
 constexpr uint32_t KAL_LOG_PERIOD_MS = 1000;       // righe KAL nel registro
+// --- GNSS ---------------------------------------------------------------------
+// Fix valido: 3D, almeno GNSS_MIN_SAT satelliti, HDOP al massimo GNSS_MAX_HDOP, epoca piu' giovane di GNSS_MAX_AGE_MS.
+constexpr int GNSS_MIN_SAT = 6;
+constexpr double GNSS_MAX_HDOP = 2.5;
+constexpr uint32_t GNSS_MAX_AGE_MS = 2000;
+// Ramo GNSS del pre-allarme: con fix valido su entrambe le schede si confrontano distanza e segnale fuso
+// di GNSS_WINDOW_MS fa (un campione ogni GNSS_SAMPLE_MS).
+constexpr uint32_t GNSS_WINDOW_MS = 10000;
+constexpr uint32_t GNSS_SAMPLE_MS = 1000;
+constexpr double GNSS_GROW_M = 8.0;     // la distanza "cresce" se aumenta di piu' di cosi'
+constexpr double GNSS_STILL_M = 3.0;    // la distanza "resta ferma" se varia al massimo di cosi' (in piu' o in meno)
+constexpr double GNSS_R_DROP_DB = 3.0;  // il segnale "scende" se cala di almeno cosi'
+constexpr double GNSS_THRESHOLD_GROW_DBM = -90.0;   // distanza che cresce e segnale che scende
+constexpr double GNSS_THRESHOLD_STILL_DBM = -95.0;  // distanza ferma e segnale che scende, con conferma piu' lunga
+constexpr uint32_t GNSS_STILL_MIN_MS = 3000;
+// Quale versione del rilevatore conta per gli allarmi (entrambe si registrano).
+constexpr bool ALARM_USES_GNSS = false;
+constexpr int GNSS_HISTORY_LEN = GNSS_WINDOW_MS / GNSS_SAMPLE_MS + 2;
+
 // Ricezioni da ricordare per compagno: quelle della finestra di spegnimento al periodo minimo.
 constexpr int RX_HISTORY_LEN = RELEASE_TIME_MS / (BEACON_PERIOD_MS - BEACON_JITTER_MS) + 2;
 // Beacon minimi nella finestra di spegnimento (arrotondati per eccesso).
