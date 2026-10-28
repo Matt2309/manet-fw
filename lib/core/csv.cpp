@@ -36,7 +36,10 @@ size_t csv_params(char* buf, size_t cap) {
                      "rilascio_ricezione=%.2f perso_ms=%lu kal_log_ms=%lu\n"
                      "# param gnss_sat_min=%d gnss_hdop_max=%.1f gnss_eta_ms=%lu gnss_finestra_ms=%lu gnss_campione_ms=%lu "
                      "gnss_cresce_m=%.1f gnss_ferma_m=%.1f gnss_r_cala_db=%.1f gnss_soglia_cresce_dbm=%.1f "
-                     "gnss_soglia_ferma_dbm=%.1f gnss_ferma_conferma_ms=%lu allarmi_gnss=%d\n",
+                     "gnss_soglia_ferma_dbm=%.1f gnss_ferma_conferma_ms=%lu allarmi_gnss=%d\n"
+                     "# param corsa_t0_tol_ms=%lu rotta_min_dbm=%.1f tel_periodo_ms=%lu tel_coda=%d tel_degradata_ms=%lu "
+                     "tel_tentativi=%d tel_gap_ms=%lu tel_esito_ms=%lu tel_riprova_ms=%lu sos_ms=%lu rilancio_ms=%lu "
+                     "schermo_ms=%lu f2=%d\n",
                      PROTO_VERSION, MAX_NODES, u(LOGIC_TICK_MS), RX_QUEUE_LEN, u(HEARD_WINDOW_MS),
                      u(LEADER_CONFLICT_MS), u(ROLE_WINDOW_MS), u(FLUSH_INTERVAL_MS), u(BAT_LOG_INTERVAL_MS),
                      FREE_SPACE_MIN_PCT, EVENT_QUEUE_LEN, LOG_BUFFER_BYTES, LOG_LINE_BYTES,
@@ -47,7 +50,9 @@ size_t csv_params(char* buf, size_t cap) {
                      u(LOST_SILENCE_MS), u(KAL_LOG_PERIOD_MS), GNSS_MIN_SAT, GNSS_MAX_HDOP, u(GNSS_MAX_AGE_MS),
                      u(GNSS_WINDOW_MS), u(GNSS_SAMPLE_MS), GNSS_GROW_M, GNSS_STILL_M, GNSS_R_DROP_DB,
                      GNSS_THRESHOLD_GROW_DBM, GNSS_THRESHOLD_STILL_DBM, u(GNSS_STILL_MIN_MS),
-                     ALARM_USES_GNSS ? 1 : 0);
+                     ALARM_USES_GNSS ? 1 : 0, u(RUN_T0_TOLERANCE_MS), ROUTE_MIN_DBM, u(TEL_PERIOD_MS), TEL_QUEUE_LEN,
+                     u(TEL_DEGRADED_PERIOD_MS), TEL_ATTEMPTS, u(TEL_MIN_GAP_MS), u(TEL_RESULT_TIMEOUT_MS),
+                     u(TEL_RETRY_MS), u(SOS_PERIOD_MS), u(RELAY_JITTER_MS), u(DISPLAY_ON_MS), F2_TEST ? 1 : 0);
     return esito(w, cap);
 }
 
@@ -150,10 +155,21 @@ size_t csv_det(char* buf, size_t cap, uint32_t t_ms, DetVersion v, DetKind kind,
 }
 
 size_t csv_tel(char* buf, size_t cap, uint32_t t_ms, TelAction action, int id, int t_s, int peer,
-               int queued, int tries) {
-    static const char* const ACTION[] = {"prodotto", "inviato", "confermato", "ricevuto", "coda"};
-    int w = snprintf(buf, cap, "TEL,%lu,%s,%d,%d,%d,%d,%d\n", static_cast<unsigned long>(t_ms),
-                     ACTION[static_cast<int>(action)], id, t_s, peer, queued, tries);
+               int queued, int tries, int ms) {
+    static const char* const ACTION[] = {"prodotto", "inviato", "confermato", "ricevuto", "coda", "fallito"};
+    char ms_txt[16] = "";
+    if (ms >= 0) snprintf(ms_txt, sizeof(ms_txt), "%d", ms);
+    int w = snprintf(buf, cap, "TEL,%lu,%s,%d,%d,%d,%d,%d,%s\n", static_cast<unsigned long>(t_ms),
+                     ACTION[static_cast<int>(action)], id, t_s, peer, queued, tries, ms_txt);
+    return esito(w, cap);
+}
+
+size_t csv_alm(char* buf, size_t cap, uint32_t t_ms, AlmAction action, int creator, int seq, int runner,
+               packets::AlarmType type) {
+    static const char* const ACTION[] = {"creato", "ricevuto", "rilanciato"};
+    static const char* const TYPE[] = {"", "pre", "perso", "sos", "fine"};
+    int w = snprintf(buf, cap, "ALM,%lu,%s,%d,%d,%d,%s\n", static_cast<unsigned long>(t_ms),
+                     ACTION[static_cast<int>(action)], creator, seq, runner, TYPE[static_cast<int>(type)]);
     return esito(w, cap);
 }
 

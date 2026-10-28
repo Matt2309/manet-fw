@@ -12,8 +12,9 @@
 //   GPS,t_ms,utc,lat,lon,alt,vel_kmh,rotta,hdop,sat,fix
 //   KAL,t_ms,id,segnale,pendenza,incertezza,eta       stima del Kalman per un compagno (1 Hz)
 //   DET,t_ms,versione,tipo,inizio|fine,id,R,soglia   decisione del rilevatore (base|gnss, pre|perso|sorda)
-//   TEL,t_ms,azione,id,t_s,compagno,n_coda,tentativi  telemetria (prodotto|inviato|confermato|ricevuto|coda)
+//   TEL,t_ms,azione,id,t_s,compagno,n_coda,tentativi,ms  telemetria (prodotto|inviato|confermato|fallito|ricevuto|coda); ms = tempo di conferma
 //   CMD,t_ms,comando,origine,seq,decimi               START o STOP (app|radio), solo capogruppo per "app"
+//   ALM,t_ms,azione,creatore,seq,corridore,tipo       allarmi (creato|ricevuto|rilanciato; tipo pre|perso|sos|fine)
 //   BLE,t_ms,evento,dettaglio                         connesso|caduto, solo capogruppo
 //   EVT,t_ms,n
 //   BAT,t_ms,mV
@@ -24,6 +25,7 @@
 #include <stdint.h>
 
 #include "detector.h"
+#include "log_types.h"
 #include "nmea.h"
 #include "packets.h"
 
@@ -40,9 +42,6 @@ size_t csv_evt(char* buf, size_t cap, uint32_t t_ms, int n);
 size_t csv_bat(char* buf, size_t cap, uint32_t t_ms, int mv);
 size_t csv_sys(char* buf, size_t cap, uint32_t t_ms, const char* msg);
 
-enum class TelAction : uint8_t { Produced, Sent, Confirmed, Received, Queued };
-enum class CmdOrigin : uint8_t { App, Radio };
-enum class BleEvent : uint8_t { Connected, Dropped };
 
 // age_ds in decimi di secondo; sigma e' la deviazione standard in dB.
 size_t csv_kal(char* buf, size_t cap, uint32_t t_ms, int id, float signal, float slope, float sigma,
@@ -50,9 +49,12 @@ size_t csv_kal(char* buf, size_t cap, uint32_t t_ms, int id, float signal, float
 // r (segnale fuso) e soglia in vigore si scrivono solo per il pre-allarme.
 size_t csv_det(char* buf, size_t cap, uint32_t t_ms, DetVersion v, DetKind kind, bool start, int id,
                float r, float threshold);
-// peer = compagno scelto (0 se nessuno), queued = record in coda, tries = tentativi dell'invio.
+// peer = compagno scelto (0 se nessuno), queued = record in coda, tries = tentativo dell'invio, ms = tempo
+// di conferma (negativo = non c'e').
 size_t csv_tel(char* buf, size_t cap, uint32_t t_ms, TelAction action, int id, int t_s, int peer,
-               int queued, int tries);
+               int queued, int tries, int ms);
+size_t csv_alm(char* buf, size_t cap, uint32_t t_ms, AlmAction action, int creator, int seq, int runner,
+               packets::AlarmType type);
 size_t csv_cmd(char* buf, size_t cap, uint32_t t_ms, packets::Cmd cmd, CmdOrigin origin, int seq,
                int elapsed_ds);
 size_t csv_ble(char* buf, size_t cap, uint32_t t_ms, BleEvent event, int detail);

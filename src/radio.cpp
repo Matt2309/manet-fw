@@ -24,6 +24,8 @@ std::atomic<uint32_t> g_dropped{0};
 void on_recv(const esp_now_recv_info_t* info, const uint8_t* data, int len) {
     if (len <= 0 || len > ESPNOW_MAX_PAYLOAD) return;
     RxPacket p;
+    p.kind = RxPacket::Kind::Receive;
+    p.send_ok = false;
     p.t_ms = millis();
     p.rssi = info->rx_ctrl->rssi;
     p.sig_mode = info->rx_ctrl->sig_mode;
@@ -32,6 +34,16 @@ void on_recv(const esp_now_recv_info_t* info, const uint8_t* data, int len) {
     p.rate_ok = (p.sig_mode == 0 && p.rate == WIFI_PHY_RATE_1M_L);
     p.len = static_cast<uint8_t>(len);
     memcpy(p.data, data, static_cast<size_t>(len));
+    if (xQueueSend(g_rx_queue, &p, 0) != pdTRUE) g_dropped++;
+}
+
+// Esito di un invio unicast: stessa coda dei pacchetti ricevuti.
+void on_sent(const esp_now_send_info_t*, esp_now_send_status_t status) {
+    RxPacket p;
+    memset(&p, 0, sizeof(p));
+    p.kind = RxPacket::Kind::SendDone;
+    p.send_ok = (status == ESP_NOW_SEND_SUCCESS);
+    p.t_ms = millis();
     if (xQueueSend(g_rx_queue, &p, 0) != pdTRUE) g_dropped++;
 }
 
@@ -125,7 +137,15 @@ bool init(Info& info) {
     return true;
 }
 
-void start() { esp_now_register_recv_cb(on_recv); }
+void start() {
+    esp_now_register_recv_cb(on_recv);
+    esp_now_register_send_cb(on_sent);
+}
+
+bool send_to(uint8_t id, const uint8_t* data, size_t len) {
+    const uint8_t* mac = node_mac_from_id(id);
+    return mac != nullptr && esp_now_send(mac, data, len) == ESP_OK;
+}
 
 bool receive(RxPacket& p, TickType_t wait) { return xQueueReceive(g_rx_queue, &p, wait) == pdTRUE; }
 

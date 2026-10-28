@@ -105,10 +105,14 @@ void process_event_locked(const LogEvent& e) {
             break;
         case LogEventType::Tel:
             n = csv_tel(line, sizeof(line), e.t_ms, e.u.tel.action, e.u.tel.id, e.u.tel.t_s, e.u.tel.peer,
-                        e.u.tel.queued, e.u.tel.tries);
+                        e.u.tel.queued, e.u.tel.tries, e.u.tel.ms);
             break;
         case LogEventType::Cmd:
             n = csv_cmd(line, sizeof(line), e.t_ms, e.u.cmd.cmd, e.u.cmd.origin, e.u.cmd.seq, e.u.cmd.elapsed_ds);
+            break;
+        case LogEventType::Alm:
+            n = csv_alm(line, sizeof(line), e.t_ms, e.u.alm.action, e.u.alm.creator, e.u.alm.seq, e.u.alm.runner,
+                        e.u.alm.type);
             break;
         case LogEventType::Ble:
             n = csv_ble(line, sizeof(line), e.t_ms, e.u.ble.event, e.u.ble.detail);
@@ -232,7 +236,7 @@ bool open_new() {
             const char* r = strstr(hdr, "ruolo=");
             g_role_offset = r != nullptr ? static_cast<long>(r - hdr) + 6 : -1;
             append_locked(hdr, h);
-            char params[768];
+            static char params[2048];  // non sullo stack: le righe # param sono lunghe
             append_locked(params, csv_params(params, sizeof(params)));
             flush_locked();
             g_last_flush = g_last_space_check = millis();

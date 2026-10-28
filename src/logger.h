@@ -13,7 +13,7 @@
 #include "packets.h"
 #include "nmea.h"
 
-enum class LogEventType : uint8_t { Tx, Rx, Gps, Evt, Bat, Sys, Kal, Det, Tel, Cmd, Ble };
+enum class LogEventType : uint8_t { Tx, Rx, Gps, Evt, Bat, Sys, Kal, Det, Tel, Cmd, Ble, Alm };
 
 struct LogEvent {
     LogEventType type;
@@ -54,7 +54,15 @@ struct LogEvent {
             uint8_t peer;
             uint16_t queued;
             uint8_t tries;
+            int32_t ms;
         } tel;
+        struct {
+            AlmAction action;
+            uint8_t creator;
+            uint8_t seq;
+            uint8_t runner;
+            packets::AlarmType type;
+        } alm;
         struct {
             packets::Cmd cmd;
             CmdOrigin origin;

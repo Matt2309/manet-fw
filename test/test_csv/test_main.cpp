@@ -85,7 +85,7 @@ void test_rx_buffer_piccolo() {
 }
 
 void test_params() {
-    char b[1024];
+    char b[2048];
     size_t n = csv_params(b, sizeof(b));
     TEST_ASSERT_GREATER_THAN(0, n);
     // Ogni riga e' un commento "# param ...", cosi' gli script che saltano i '#' non la vedono.
@@ -97,7 +97,7 @@ void test_params() {
         righe++;
         p = nl + 1;
     }
-    TEST_ASSERT_EQUAL(5, righe);
+    TEST_ASSERT_EQUAL(6, righe);
     TEST_ASSERT_NOT_NULL(strstr(b, "proto=2 "));
     TEST_ASSERT_NOT_NULL(strstr(b, "tick_ms=100 "));
     TEST_ASSERT_NOT_NULL(strstr(b, "rx_ridotta=0\n"));
@@ -106,6 +106,9 @@ void test_params() {
     TEST_ASSERT_NOT_NULL(strstr(b, "gnss_cresce_m=8.0 "));
     TEST_ASSERT_NOT_NULL(strstr(b, "gnss_soglia_ferma_dbm=-95.0 "));
     TEST_ASSERT_NOT_NULL(strstr(b, "allarmi_gnss=0\n"));
+    TEST_ASSERT_NOT_NULL(strstr(b, "tel_coda=600 "));
+    TEST_ASSERT_NOT_NULL(strstr(b, "rotta_min_dbm=-88.0 "));
+    TEST_ASSERT_NOT_NULL(strstr(b, "f2=0\n"));
     TEST_ASSERT_NOT_NULL(strstr(b, "pre_dbm=-93.0 "));
     TEST_ASSERT_NOT_NULL(strstr(b, "rilascio_ricezione=0.80 "));
     TEST_ASSERT_EQUAL(0, csv_params(b, 20));
@@ -126,12 +129,20 @@ void test_righe_nuove() {
     csv_det(b, sizeof(b), 9700, DetVersion::Gnss, DetKind::PreAlarm, true, 2, -90.7, -90.0);
     TEST_ASSERT_EQUAL_STRING("DET,9700,gnss,pre,inizio,2,-90.70,-90.0\n", b);
 
-    csv_tel(b, sizeof(b), 3000, TelAction::Produced, 2, 125, 0, 7, 0);
-    TEST_ASSERT_EQUAL_STRING("TEL,3000,prodotto,2,125,0,7,0\n", b);
-    csv_tel(b, sizeof(b), 3100, TelAction::Confirmed, 2, 125, 1, 6, 2);
-    TEST_ASSERT_EQUAL_STRING("TEL,3100,confermato,2,125,1,6,2\n", b);
-    csv_tel(b, sizeof(b), 3200, TelAction::Queued, 2, 125, 0, 8, 0);
-    TEST_ASSERT_EQUAL_STRING("TEL,3200,coda,2,125,0,8,0\n", b);
+    csv_tel(b, sizeof(b), 3000, TelAction::Produced, 2, 125, 0, 7, 0, -1);
+    TEST_ASSERT_EQUAL_STRING("TEL,3000,prodotto,2,125,0,7,0,\n", b);
+    csv_tel(b, sizeof(b), 3100, TelAction::Confirmed, 2, 125, 1, 6, 2, 14);
+    TEST_ASSERT_EQUAL_STRING("TEL,3100,confermato,2,125,1,6,2,14\n", b);
+    csv_tel(b, sizeof(b), 3200, TelAction::Queued, 2, 125, 0, 8, 0, -1);
+    TEST_ASSERT_EQUAL_STRING("TEL,3200,coda,2,125,0,8,0,\n", b);
+
+    csv_tel(b, sizeof(b), 3300, TelAction::Failed, 3, 40, 2, 9, 3, 1000);
+    TEST_ASSERT_EQUAL_STRING("TEL,3300,fallito,3,40,2,9,3,1000\n", b);
+
+    csv_alm(b, sizeof(b), 3400, AlmAction::Created, 3, 12, 3, packets::AlarmType::Sos);
+    TEST_ASSERT_EQUAL_STRING("ALM,3400,creato,3,12,3,sos\n", b);
+    csv_alm(b, sizeof(b), 3500, AlmAction::Relayed, 2, 200, 4, packets::AlarmType::End);
+    TEST_ASSERT_EQUAL_STRING("ALM,3500,rilanciato,2,200,4,fine\n", b);
 
     csv_cmd(b, sizeof(b), 4000, packets::Cmd::Start, CmdOrigin::App, 1, 0);
     TEST_ASSERT_EQUAL_STRING("CMD,4000,start,app,1,0\n", b);

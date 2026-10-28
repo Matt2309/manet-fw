@@ -37,3 +37,12 @@ inline uint8_t node_id_from_mac(const uint8_t mac[6]) {
     }
     return 0;
 }
+
+// MAC di un nodo dall'ID; nullptr se l'ID non e' in tabella.
+inline const uint8_t* node_mac_from_id(uint8_t id) {
+    for (const NodeEntry& n : NODES) {
+        if (n.id == 0) break;
+        if (n.id == id) return n.mac;
+    }
+    return nullptr;
+}

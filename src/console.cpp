@@ -124,9 +124,11 @@ void cmd_get(const char* arg) {
         reply("ERR nome file non valido");
         return;
     }
-    // Se e' il file aperto, lo chiude prima: la registrazione resta ferma.
+    // Se e' il file aperto, lo chiude prima e ne apre uno nuovo a trasferimento finito: il registro resta attivo.
+    bool reopen = false;
     if (logger::state() == logger::State::Recording && strcmp(logger::current_path() + 1, name) == 0) {
         logger::save_and_close("get");
+        reopen = true;
     }
 
     logger::lock();
@@ -166,6 +168,7 @@ void cmd_get(const char* arg) {
 
     fclose(f);
     logger::unlock();
+    if (reopen) logger::open_new();
 }
 
 void cmd_rm(const char* arg) {
@@ -175,13 +178,25 @@ void cmd_rm(const char* arg) {
         return;
     }
     if (logger::state() == logger::State::Recording && strcmp(logger::current_path() + 1, name) == 0) {
-        reply("ERR il file e' aperto: chiuderlo con una pressione lunga o con get");
+        reply("ERR il file e' aperto: scaricarlo con get lo chiude e ne apre uno nuovo");
         return;
     }
     logger::lock();
     int r = unlink(full);
     logger::unlock();
     reply(r == 0 ? "OK" : "ERR cancellazione fallita");
+}
+
+// start e stop servono a provare la corsa senza l'app (stessa strada del BLE); solo sul capogruppo.
+void cmd_run(bool start) {
+    NodeStatus st = {};
+    logic_status(st);
+    if (st.role != Role::Leader) {
+        reply("ERR solo il capogruppo avvia e ferma la corsa");
+        return;
+    }
+    logic_command(start ? LogicCmd::Start : LogicCmd::Stop);
+    reply("OK");
 }
 
 void cmd_format(const char* arg) {
@@ -217,8 +232,12 @@ void run_command(char* line) {
         cmd_rm(arg);
     } else if (strcmp(line, "format") == 0) {
         cmd_format(arg);
+    } else if (strcmp(line, "start") == 0) {
+        cmd_run(true);
+    } else if (strcmp(line, "stop") == 0) {
+        cmd_run(false);
     } else if (line[0] != '\0') {
-        reply("ERR comando sconosciuto (info, ls, free, get, rm, format)");
+        reply("ERR comando sconosciuto (info, ls, free, get, rm, format, start, stop)");
     }
 }
 

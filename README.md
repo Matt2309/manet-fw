@@ -34,19 +34,49 @@ La registrazione parte da sola all'accensione, su un nuovo `/run_NNN.csv`.
 
 | Tasto USER | Effetto |
 |---|---|
-| pressione breve (< 1 s) | riga `EVT` numerata, il LED lampeggia |
+| pressione breve (< 1 s) | riga `EVT` numerata, il LED lampeggia, lo schermo si accende |
 | pressione lunga (3 s) iniziata nei primi 10 s dopo l'accensione | alterna `CORR`/`CAPO` e lo salva in NVS |
-| pressione lunga (3 s), dopo | flush e chiusura, display `SALVATO`; un'altra pressione lunga apre un nuovo file |
+| pressione lunga (3 s), a corsa avviata | attiva l'**SOS**; un'altra pressione lunga lo annulla |
 
 Il ruolo resta quello salvato anche dopo un riavvio (alla prima accensione e' `CORR`) e si cambia
 solo prima dello START. Non tenere premuto il tasto durante l'accensione: GPIO0 e' il pin di avvio.
 La finestra conta dall'inizio della pressione: contano anche i 3 s della pressione, che puo' scattare dopo i 10 s.
-Sul display la riga 3 mostra, nella finestra, `premi 3s=ruolo (Ns)` con i secondi che restano; poi i salti dal
-capogruppo e i compagni sentiti; un capogruppo che sente un altro capogruppo mostra `DUE CAPOGRUPPO`.
+Il registro resta sempre attivo: la pressione lunga non chiude piu' il file.
 
-Da fermo i beacon continuano a partire, cosi' le altre schede non vedono perdite fittizie.
+**Display** (160x80): ID, ruolo, stato della corsa (`PRONTA`, `CORSA mm:ss`, `FERMA mm:ss`), GPS, salti dal capogruppo e
+compagni sentiti, eventi e batteria. Avvisi in grande: `SOS INVIATO`, `MEMORIA PIENA`, `ISOLATO` (corsa avviata e nessuna via
+verso il capogruppo). Lo schermo resta acceso `DISPLAY_ON_MS` dopo un tasto o un avviso nuovo (all'avvio per la finestra del ruolo).
+Nella finestra del ruolo la riga 3 mostra `premi 3s=ruolo (Ns)`; un capogruppo che sente un altro capogruppo `DUE CAPOGRUPPO`.
+
 Sotto il 5% di spazio libero la scheda smette di scrivere e mostra `MEMORIA PIENA`
 (circa 5 ore di registrazione). Con un distacco della batteria si perdono al massimo 5 s.
+
+## Corsa e percorso dei dati
+
+- **START / STOP** arrivano dall'app al capogruppo (BLE), oppure, per provare senza app, dalla seriale del capogruppo
+  (`start`, `stop`). Il capogruppo fissa T0 e manda il comando a tutti; chi lo riceve lo rilancia una volta aggiornando i
+  decimi di secondo trascorsi. Il beacon porta i secondi da T0 e il bit «ferma»: chi ha perso lo START (o lo STOP) lo
+  ricava dal primo compagno che lo conosce. Uno START a corsa gia' avviata non azzera T0.
+- **Salti**: il capogruppo dichiara 0, gli altri 1 + il minimo fra i compagni «sentiti bene» (stima sopra -88 dBm, sentiti
+  negli ultimi 2 s); chi non sente nessuno dichiara 255.
+- **Telemetria**: ogni corridore produce un record al secondo e lo mette nella **coda unica** (600 record, 10 minuti), dove
+  finiscono anche i record dei compagni. La coda si svuota verso il compagno con meno salti e segnale stimato piu' forte,
+  con invio unicast e conferma ESP-NOW: fino a 3 tentativi, poi il secondo candidato; la scelta si rifa' a ogni invio.
+  Senza candidati i record restano in coda. A coda piena si produce un record ogni 5 s sovrascrivendo i piu' vecchi; i record
+  con SOS non si cancellano mai. La coppia (id, secondi da T0) elimina i doppioni.
+- **Allarmi**: a ogni cambio del rilevatore (pre-allarme, perso, fine) parte un allarme a tutti, rilanciato una volta da chi
+  lo riceve; l'SOS si ripete ogni 10 s. Gli allarmi viaggiano anche dentro la telemetria.
+- **Prima dello START** le schede mandano solo beacon: niente telemetria e niente allarmi.
+
+### Prova F2 (conferma a 1 Mbit/s)
+
+```
+.venv/bin/pio run -e tracker_f2 -t upload
+```
+
+Con questa build ogni scheda manda, una volta al secondo e a rotazione, un pacchetto da circa 223 byte in unicast con
+conferma verso le altre, senza START. Nel registro, righe `TEL` `inviato`, `confermato` e `fallito` con il tentativo e il
+tempo di conferma in ms (ultima colonna); chi riceve scrive `ricevuto`. Tre tentativi falliti e si ricomincia al secondo dopo.
 
 ## Scaricare i dati
 
@@ -56,7 +86,7 @@ python tools/scarica.py --porta /dev/cu.usbmodemXXXX
 ```
 
 Salva in `dati/<data>/scheda_<id>/` controllando dimensione e CRC32; non cancella nulla.
-**`get` sul file aperto lo chiude**: la registrazione di quella scheda si ferma.
+**`get` sul file aperto lo chiude** e ne apre subito uno nuovo: il registro non si ferma.
 
 Comandi seriali (115200, uno per riga):
 
@@ -68,6 +98,7 @@ Comandi seriali (115200, uno per riga):
 | `get <file>` | `BEGIN nome dimensione crc32`, i byte del file, `END` |
 | `rm <file>` | `OK`; rifiuta il file aperto |
 | `format SI` | formatta e ferma la registrazione |
+| `start` / `stop` | solo sul capogruppo: avvia o ferma la corsa (come il comando dell'app) |
 
 Le righe che iniziano con `#` sono messaggi di debug e vanno ignorate.
 
@@ -97,9 +128,10 @@ BAT,t_ms,mV                     ogni 30 s
 SYS,t_ms,messaggio
 KAL,t_ms,id,segnale,pendenza,incertezza,eta                stima del Kalman per ogni compagno sentito, 1 Hz
 DET,t_ms,versione,tipo,inizio|fine,id,R,soglia             decisioni: versione base|gnss, tipo pre|perso|sorda; R e soglia in vigore solo per pre
-TEL,t_ms,azione,id,t_s,compagno,n_coda,tentativi           telemetria (dalla fase 4)
-CMD,t_ms,comando,origine,seq,decimi                        START e STOP (dalla fase 4)
+TEL,t_ms,azione,id,t_s,compagno,n_coda,tentativi,ms        telemetria: prodotto|inviato|confermato|fallito|ricevuto|coda; ms = conferma
+CMD,t_ms,comando,origine,seq,decimi                        START e STOP (origine app|radio)
 BLE,t_ms,evento,dettaglio                                  connessioni e cadute, solo capogruppo (fase 5)
+ALM,t_ms,azione,creatore,seq,corridore,tipo                allarmi creati, ricevuti e rilanciati (tipo pre|perso|sos|fine)
 ```
 
 ## Rilevatore

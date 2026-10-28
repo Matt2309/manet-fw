@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <Preferences.h>
 #include <esp_random.h>
+#include <esp_system.h>
 #include <string.h>
 
 #include "app.h"
@@ -13,7 +14,7 @@
 namespace {
 
 Node* g_node_logic = nullptr;
-QueueHandle_t g_cmd_queue = nullptr;     // dalla UI: alternare il ruolo
+QueueHandle_t g_cmd_queue = nullptr;     // verso la logica: comandi
 QueueHandle_t g_gnss_queue = nullptr;    // dal task GNSS: un campione per epoca
 QueueHandle_t g_status_queue = nullptr;  // verso la UI: un solo elemento, sovrascritto
 
@@ -32,7 +33,60 @@ void publish_status(uint32_t now) {
     }
 }
 
+// Righe di registro prodotte dalla logica.
+void post_node_log(const NodeLog& l) {
+    LogEvent e;
+    memset(&e, 0, sizeof(e));
+    e.t_ms = l.t_ms;
+    switch (l.kind) {
+        case NodeLog::Kind::Tel:
+            e.type = LogEventType::Tel;
+            e.u.tel.action = l.u.tel.action;
+            e.u.tel.id = l.u.tel.id;
+            e.u.tel.t_s = l.u.tel.t_s;
+            e.u.tel.peer = l.u.tel.peer;
+            e.u.tel.queued = l.u.tel.queued;
+            e.u.tel.tries = l.u.tel.tries;
+            e.u.tel.ms = l.u.tel.ms;
+            break;
+        case NodeLog::Kind::Alm:
+            e.type = LogEventType::Alm;
+            e.u.alm.action = l.u.alm.action;
+            e.u.alm.creator = l.u.alm.creator;
+            e.u.alm.seq = l.u.alm.seq;
+            e.u.alm.runner = l.u.alm.runner;
+            e.u.alm.type = static_cast<packets::AlarmType>(l.u.alm.type);
+            break;
+        case NodeLog::Kind::Cmd:
+            e.type = LogEventType::Cmd;
+            e.u.cmd.cmd = l.u.cmd.cmd;
+            e.u.cmd.origin = l.u.cmd.origin;
+            e.u.cmd.seq = l.u.cmd.seq;
+            e.u.cmd.elapsed_ds = l.u.cmd.elapsed_ds;
+            break;
+    }
+    logger::post(e);
+}
+
+// Manda quanto la logica ha preparato (allarmi, comandi, telemetria) e scrive le sue righe di registro.
+void drain_node(uint32_t now) {
+    Outgoing o;
+    while (g_node_logic->pop_outgoing(now, o)) {
+        if (o.unicast) {
+            if (!radio::send_to(o.dest, o.data, o.len)) g_node_logic->on_send_result(false, now);
+        } else if (radio::send_broadcast(o.data, o.len) != 0) {
+            logger::post_sys("esp_now_send errore (broadcast tipo %d)", o.data[2]);
+        }
+    }
+    NodeLog l;
+    while (g_node_logic->pop_log(l)) post_node_log(l);
+}
+
 void handle_rx(const radio::RxPacket& p) {
+    if (p.kind == radio::RxPacket::Kind::SendDone) {
+        g_node_logic->on_send_result(p.send_ok, p.t_ms);
+        return;
+    }
     if (!p.rate_ok) {
         g_unexpected_rate++;
         if (p.t_ms - g_last_rate_log >= 10000) {
@@ -112,8 +166,7 @@ void log_estimates(uint32_t now) {
     }
 }
 
-void toggle_role() {
-    uint32_t now = millis();
+void toggle_role(uint32_t now) {
     if (!g_node_logic->toggle_role(now)) return;
     Role r = g_node_logic->role();
     Preferences prefs;
@@ -125,6 +178,23 @@ void toggle_role() {
     }
     logger::set_role(role_name(r));
     logger::post_sys("ruolo %s", role_name(r));
+}
+
+void apply_command(LogicCmd cmd, uint32_t now) {
+    switch (cmd) {
+        case LogicCmd::ToggleRole:
+            toggle_role(now);
+            break;
+        case LogicCmd::ToggleSos:
+            if (g_node_logic->toggle_sos(now)) logger::post_sys("sos %s", g_node_logic->status(now).sos ? "attivo" : "annullato");
+            break;
+        case LogicCmd::Start:
+            if (g_node_logic->start_run(now) == Node::CmdResult::Done) logger::post_sys("corsa avviata");
+            break;
+        case LogicCmd::Stop:
+            if (g_node_logic->stop_run(now) == Node::CmdResult::Done) logger::post_sys("corsa ferma");
+            break;
+    }
     publish_status(now);
 }
 
@@ -133,12 +203,14 @@ void logic_task(void*) {
     uint32_t next_beacon = millis() + esp_random() % BEACON_PERIOD_MS;
     uint32_t next_tick = millis() + LOGIC_TICK_MS;
     uint32_t next_kal = millis() + KAL_LOG_PERIOD_MS;
+    uint32_t next_heap = millis() + HEAP_LOG_PERIOD_MS;
 
     for (;;) {
         uint32_t now = millis();
-        int32_t wait_beacon = static_cast<int32_t>(next_beacon - now);
+        int32_t wait = static_cast<int32_t>(next_beacon - now);
         int32_t wait_tick = static_cast<int32_t>(next_tick - now);
-        int32_t wait = wait_beacon < wait_tick ? wait_beacon : wait_tick;
+        if (wait_tick < wait) wait = wait_tick;
+        if (wait > static_cast<int32_t>(LOGIC_MAX_WAIT_MS)) wait = LOGIC_MAX_WAIT_MS;
         if (wait < 0) wait = 0;
 
         radio::RxPacket p;
@@ -147,7 +219,7 @@ void logic_task(void*) {
             while (radio::receive(p, 0)) handle_rx(p);
         }
         uint8_t cmd;
-        while (xQueueReceive(g_cmd_queue, &cmd, 0) == pdTRUE) toggle_role();
+        while (xQueueReceive(g_cmd_queue, &cmd, 0) == pdTRUE) apply_command(static_cast<LogicCmd>(cmd), millis());
         GnssSample fix;
         while (xQueueReceive(g_gnss_queue, &fix, 0) == pdTRUE) g_node_logic->on_gnss(fix);
 
@@ -173,9 +245,16 @@ void logic_task(void*) {
                 if (due(now, next_kal)) next_kal = now + KAL_LOG_PERIOD_MS;
                 log_estimates(now);
             }
+            if (due(now, next_heap)) {
+                next_heap = now + HEAP_LOG_PERIOD_MS;
+                logger::post_sys("heap libero=%u minimo=%u coda=%u", static_cast<unsigned>(esp_get_free_heap_size()),
+                                 static_cast<unsigned>(esp_get_minimum_free_heap_size()),
+                                 static_cast<unsigned>(g_node_logic->queue_size()));
+            }
             uint32_t dropped = radio::take_dropped();
             if (dropped > 0) logger::post_sys("coda radio piena persi=%lu", static_cast<unsigned long>(dropped));
         }
+        drain_node(millis());
     }
 }
 
@@ -190,8 +269,9 @@ Role logic_init() {
         prefs.end();
     }
     static Node node(g_node.id, role);
+    node.seed(esp_random());
     g_node_logic = &node;
-    g_cmd_queue = xQueueCreate(4, sizeof(uint8_t));
+    g_cmd_queue = xQueueCreate(8, sizeof(uint8_t));
     g_gnss_queue = xQueueCreate(4, sizeof(GnssSample));
     g_status_queue = xQueueCreate(1, sizeof(NodeStatus));
     return role;
@@ -203,9 +283,9 @@ void logic_post_gnss(const GnssSample& s) {
     if (g_gnss_queue != nullptr) xQueueSend(g_gnss_queue, &s, 0);
 }
 
-void logic_toggle_role() {
-    uint8_t cmd = 1;
-    xQueueSend(g_cmd_queue, &cmd, 0);
+void logic_command(LogicCmd cmd) {
+    uint8_t c = static_cast<uint8_t>(cmd);
+    if (g_cmd_queue != nullptr) xQueueSend(g_cmd_queue, &c, 0);
 }
 
 bool logic_status(NodeStatus& out) {
