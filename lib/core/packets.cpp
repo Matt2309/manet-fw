@@ -305,21 +305,28 @@ bool unpack_command(const uint8_t* data, size_t len, Command& c) {
 // --- Quantizzazione ----------------------------------------------------------
 
 uint8_t age_ds(uint32_t elapsed_ms) {
-    uint32_t ds = elapsed_ms / 100;
-    return ds > 255 ? 255 : static_cast<uint8_t>(ds);
+    double ds = nearbyint(elapsed_ms / 100.0);
+    return ds > 255.0 ? 255 : static_cast<uint8_t>(ds);
 }
 
-int8_t quantize_i8(float v, float step) {
-    float q = roundf(v / step);
-    if (q > 127.0f) return 127;
-    if (q < -128.0f) return -128;
+int8_t quantize_i8(double v, double step) {
+    double q = nearbyint(v / step);
+    if (q > 127.0) return 127;
+    if (q < -128.0) return -128;
     return static_cast<int8_t>(q);
 }
 
-uint8_t quantize_u8(float v, float step) {
-    float q = roundf(v / step);
-    if (q < 0.0f) return 0;
-    if (q > 254.0f) return 254;
+int8_t quantize_slope(double v) {
+    double q = nearbyint(v / SLOPE_STEP);
+    if (q > 127.0) return 127;
+    if (q < -127.0) return -127;
+    return static_cast<int8_t>(q);
+}
+
+uint8_t quantize_u8(double v, double step) {
+    double q = nearbyint(v / step);
+    if (q < 0.0) return 0;
+    if (q > 254.0) return 254;
     return static_cast<uint8_t>(q);
 }
 

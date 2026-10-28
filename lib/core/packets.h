@@ -38,8 +38,10 @@ constexpr uint8_t HOPS_ISOLATED = 255;
 constexpr uint8_t SIGMA_NA = 255;
 
 // Quantizzazione dei campi.
-constexpr float SLOPE_STEP = 0.1f;  // dB/s
-constexpr float SIGMA_STEP = 0.1f;  // dB
+constexpr double SIGNAL_STEP = 1.0;  // dB
+constexpr double SLOPE_STEP = 0.1;   // dB/s
+constexpr double SIGMA_STEP = 0.1;   // dB
+constexpr double AGE_STEP = 0.1;     // s
 constexpr uint8_t BATTERY_MAX = 15;
 
 struct Position {
@@ -145,9 +147,11 @@ size_t pack_command(const Command& c, uint8_t* out, size_t cap);
 bool unpack_command(const uint8_t* data, size_t len, Command& c);
 
 // --- Quantizzazione ----------------------------------------------------------
+// Arrotondano al piu' vicino, a meta' verso il pari, come np.rint del simulatore.
 uint8_t age_ds(uint32_t elapsed_ms);  // decimi di secondo, saturata a 255
-int8_t quantize_i8(float v, float step);   // arrotonda e satura
-uint8_t quantize_u8(float v, float step);  // arrotonda e satura a 0..254 (255 = n.d.)
+int8_t quantize_i8(double v, double step);     // satura a -128..127
+int8_t quantize_slope(double v);               // dB/s in passi da SLOPE_STEP, satura a +-127
+uint8_t quantize_u8(double v, double step);    // satura a 0..254 (255 = n.d.)
 uint8_t battery_code(int percent);         // 0..100 -> 0..BATTERY_MAX
 int battery_percent(uint8_t code);
 int32_t degrees_to_e7(double deg);

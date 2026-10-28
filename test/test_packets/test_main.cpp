@@ -258,18 +258,26 @@ void test_comando() {
 }
 
 void test_quantizzazione() {
-    TEST_ASSERT_EQUAL(0, age_ds(99));
-    TEST_ASSERT_EQUAL(1, age_ds(100));
+    // Arrotonda al piu' vicino; il mezzo va al pari, come np.rint.
+    TEST_ASSERT_EQUAL(0, age_ds(49));
+    TEST_ASSERT_EQUAL(0, age_ds(50));
+    TEST_ASSERT_EQUAL(1, age_ds(51));
+    TEST_ASSERT_EQUAL(2, age_ds(150));
+    TEST_ASSERT_EQUAL(2, age_ds(250));
+    TEST_ASSERT_EQUAL(254, age_ds(25400));
     TEST_ASSERT_EQUAL(255, age_ds(25500));
     TEST_ASSERT_EQUAL(255, age_ds(4000000000u));
 
-    TEST_ASSERT_EQUAL(-61, quantize_i8(-60.6f, 1.0f));
-    TEST_ASSERT_EQUAL(127, quantize_i8(500.0f, 1.0f));
-    TEST_ASSERT_EQUAL(-128, quantize_i8(-500.0f, 1.0f));
-    TEST_ASSERT_EQUAL(-12, quantize_i8(-1.2f, SLOPE_STEP));
-    TEST_ASSERT_EQUAL(32, quantize_u8(3.2f, SIGMA_STEP));
-    TEST_ASSERT_EQUAL(254, quantize_u8(100.0f, SIGMA_STEP));  // 255 resta riservato a "n.d."
-    TEST_ASSERT_EQUAL(0, quantize_u8(-1.0f, SIGMA_STEP));
+    TEST_ASSERT_EQUAL(-61, quantize_i8(-60.6, SIGNAL_STEP));
+    TEST_ASSERT_EQUAL(-62, quantize_i8(-61.5, SIGNAL_STEP));
+    TEST_ASSERT_EQUAL(127, quantize_i8(500.0, SIGNAL_STEP));
+    TEST_ASSERT_EQUAL(-128, quantize_i8(-500.0, SIGNAL_STEP));
+    TEST_ASSERT_EQUAL(-12, quantize_slope(-1.2));
+    TEST_ASSERT_EQUAL(-127, quantize_slope(-100.0));  // simmetrica, come il simulatore
+    TEST_ASSERT_EQUAL(127, quantize_slope(100.0));
+    TEST_ASSERT_EQUAL(32, quantize_u8(3.2, SIGMA_STEP));
+    TEST_ASSERT_EQUAL(254, quantize_u8(100.0, SIGMA_STEP));  // 255 resta riservato a "n.d."
+    TEST_ASSERT_EQUAL(0, quantize_u8(-1.0, SIGMA_STEP));
 
     TEST_ASSERT_EQUAL(0, battery_code(0));
     TEST_ASSERT_EQUAL(15, battery_code(100));

@@ -31,6 +31,31 @@ constexpr uint32_t ROLE_WINDOW_MS = 10000;
 constexpr const char* ROLE_NVS_NAMESPACE = "manet";
 constexpr const char* ROLE_NVS_KEY = "ruolo";
 
+// --- Rilevatore (lo stesso di manet-sim, ritarato sul canale misurato) -------
+// Kalman per compagno: stato [segnale, pendenza].
+constexpr double KALMAN_SIGMA_A = 0.25;            // dB/s^2, rumore di processo
+constexpr double KALMAN_R = 10.84;                 // dB^2, rumore di misura
+constexpr double KALMAN_INITIAL_SLOPE_STD = 3.0;   // dB/s, incertezza iniziale sulla pendenza
+constexpr uint32_t KALMAN_REINIT_GAP_MS = 10000;   // dopo un silenzio piu' lungo il filtro riparte da zero
+// Fusione: le voci piu' vecchie di questo valore sono escluse.
+constexpr uint32_t FUSION_MAX_AGE_MS = 2000;
+// Pre-allarme: segnale fuso sotto soglia per almeno PRE_ALARM_MIN_MS.
+constexpr double PRE_ALARM_DBM = -93.0;
+constexpr uint32_t PRE_ALARM_MIN_MS = 1000;
+// Spegnimento: segnale sopra soglia + margine per RELEASE_TIME_MS, con almeno RELEASE_RECEPTION
+// dei beacon attesi ricevuti in quel tempo (il nodo perso si spegne solo con questa ricezione).
+constexpr double RELEASE_MARGIN_DB = 3.0;
+constexpr uint32_t RELEASE_TIME_MS = 30000;
+constexpr double RELEASE_RECEPTION = 0.8;
+// Nodo perso: nessun beacon da questo tempo.
+constexpr uint32_t LOST_SILENCE_MS = 10000;
+constexpr uint32_t KAL_LOG_PERIOD_MS = 1000;       // righe KAL nel registro
+// Ricezioni da ricordare per compagno: quelle della finestra di spegnimento al periodo minimo.
+constexpr int RX_HISTORY_LEN = RELEASE_TIME_MS / (BEACON_PERIOD_MS - BEACON_JITTER_MS) + 2;
+// Beacon minimi nella finestra di spegnimento (arrotondati per eccesso).
+constexpr int RELEASE_MIN_BEACONS =
+    static_cast<int>(RELEASE_RECEPTION * RELEASE_TIME_MS / BEACON_PERIOD_MS - 1e-9) + 1;
+
 // --- Registrazione -----------------------------------------------------------
 constexpr uint32_t FLUSH_INTERVAL_MS = 5000;
 constexpr uint32_t BAT_LOG_INTERVAL_MS = 30000;
