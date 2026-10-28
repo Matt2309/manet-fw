@@ -43,6 +43,9 @@ public:
     // Stima del collegamento compagno -> me, per il registro; false se mai sentito.
     bool estimate(uint8_t id, uint32_t now_ms, LinkView& v) const { return detector_.estimate(id, now_ms, v); }
 
+    // Campione GNSS proprio (a ogni epoca): serve alla posizione nel beacon e al ramo GNSS del rilevatore.
+    void on_gnss(const GnssSample& s) { detector_.set_own_fix(s); }
+
     // Alterna il ruolo se la regola lo permette.
     bool toggle_role(uint32_t now_ms);
 

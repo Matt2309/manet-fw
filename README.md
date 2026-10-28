@@ -96,7 +96,7 @@ EVT,t_ms,n
 BAT,t_ms,mV                     ogni 30 s
 SYS,t_ms,messaggio
 KAL,t_ms,id,segnale,pendenza,incertezza,eta                stima del Kalman per ogni compagno sentito, 1 Hz
-DET,t_ms,versione,tipo,inizio|fine,id,R                    decisioni: tipo pre|perso|sorda, R solo per pre (versione base; gnss dalla fase 3)
+DET,t_ms,versione,tipo,inizio|fine,id,R,soglia             decisioni: versione base|gnss, tipo pre|perso|sorda; R e soglia in vigore solo per pre
 TEL,t_ms,azione,id,t_s,compagno,n_coda,tentativi           telemetria (dalla fase 4)
 CMD,t_ms,comando,origine,seq,decimi                        START e STOP (dalla fase 4)
 BLE,t_ms,evento,dettaglio                                  connessioni e cadute, solo capogruppo (fase 5)
@@ -111,6 +111,25 @@ Lo stesso di `manet-sim` (`src/kalman.py`, `fusion.py`, `detector.py`), con i pa
 (una scheda che smette di sentire tutti insieme non dichiara persi gli altri; riga `DET ... sorda`).
 Lo spegnimento chiede 30 s con R sopra -90 dBm e almeno 48 beacon su 60 ricevuti dal compagno.
 Il rilevatore gira sempre e registra le decisioni; l'invio degli allarmi arriva con la fase 4.
+
+### Ramo GNSS
+
+In parallelo al rilevatore senza GNSS gira una seconda versione del pre-allarme che cambia solo la soglia
+d'inizio; entrambe si registrano (righe `DET` con `base` e `gnss`) e `ALARM_USES_GNSS` in `config.h` sceglie quale
+conta per gli allarmi (di partenza: senza GNSS). Il GNSS non tocca mai il nodo perso, ne' lo spegnimento.
+
+Un fix e' valido se e' 3D, con almeno 6 satelliti, HDOP al massimo 2,5 ed epoca piu' giovane di 2 s; il beacon
+porta la posizione (lat, lon, HDOP) solo con fix valido, e la posizione di un compagno vale 2 s. Con fix valido su
+entrambe le schede e almeno 10 s di campioni continui (uno al secondo), confrontando distanza e segnale fuso di 10 s fa:
+
+| distanza (10 s) | segnale | soglia | conferma |
+|---|---|---|---|
+| cresce di oltre 8 m | cala di almeno 3 dB | -90 dBm | 1 s |
+| varia al massimo di 3 m | cala di almeno 3 dB | -95 dBm | 3 s |
+| altro (3-8 m, diminuisce, segnale che non cala) | | -93 dBm | 1 s |
+
+Senza fix valido su una delle due: -93 dBm. Tutte le soglie sono in `config.h` (`GNSS_*`). Sul display
+`GPS OK n sat` indica il fix valido; `GPS 3D n sat` un fix che non basta.
 
 Sul display, con allarmi attivi, la riga 3 mostra `PRE n PERSI n`.
 

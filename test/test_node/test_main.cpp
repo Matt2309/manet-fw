@@ -115,6 +115,35 @@ void test_cambio_ruolo_nella_finestra() {
     TEST_ASSERT_EQUAL(Role::Runner, n.role());
 }
 
+void test_posizione_nel_beacon() {
+    Node n(1, Role::Runner);
+    uint8_t tx[packets::MAX_SIZE];
+    packets::Beacon sent, back;
+
+    size_t len = n.build_beacon(500, 100, tx, sizeof(tx), sent);
+    TEST_ASSERT_FALSE(sent.has_pos);  // nessun fix
+    TEST_ASSERT_EQUAL(11, len);
+
+    n.on_gnss(GnssSample{1000, true, packets::Position{444936000, 113426000, 12}});
+    len = n.build_beacon(1500, 100, tx, sizeof(tx), sent);
+    TEST_ASSERT_TRUE(sent.has_pos);
+    TEST_ASSERT_EQUAL(11 + 9, len);
+    TEST_ASSERT_TRUE(packets::unpack_beacon(tx, len, back));
+    TEST_ASSERT_TRUE(back.has_pos);
+    TEST_ASSERT_EQUAL_INT32(444936000, back.pos.lat_e7);
+    TEST_ASSERT_EQUAL_INT32(113426000, back.pos.lon_e7);
+    TEST_ASSERT_EQUAL_UINT8(12, back.pos.hdop_dm);
+
+    n.build_beacon(2999, 100, tx, sizeof(tx), sent);
+    TEST_ASSERT_TRUE(sent.has_pos);  // 1999 ms: ancora giovane
+    n.build_beacon(3000, 100, tx, sizeof(tx), sent);
+    TEST_ASSERT_FALSE(sent.has_pos);  // 2000 ms: non piu' "meno di 2 s"
+
+    n.on_gnss(GnssSample{4000, false, packets::Position{}});
+    n.build_beacon(4100, 100, tx, sizeof(tx), sent);
+    TEST_ASSERT_FALSE(sent.has_pos);  // fix non valido
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_riceve_un_beacon_e_lo_mette_nei_vicini);
@@ -123,5 +152,6 @@ int main() {
     RUN_TEST(test_il_capogruppo_dichiara_zero_salti);
     RUN_TEST(test_due_capogruppo_solo_per_il_capogruppo);
     RUN_TEST(test_cambio_ruolo_nella_finestra);
+    RUN_TEST(test_posizione_nel_beacon);
     return UNITY_END();
 }

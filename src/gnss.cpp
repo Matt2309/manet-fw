@@ -4,7 +4,9 @@
 #include <string.h>
 
 #include "app.h"
+#include "fix.h"
 #include "logger.h"
+#include "logic.h"
 #include "nmea.h"
 #include "pins.h"
 
@@ -30,6 +32,10 @@ void gnss_task(void*) {
                 e.u.gps = ep;
                 logger::post(e);
 
+                GnssSample sample = sample_from_epoch(ep);
+                logic_post_gnss(sample);
+
+                g_gps.valid = sample.valid;
                 g_gps.fix = ep.fix;
                 g_gps.sat = ep.has_sat ? ep.sat : 0;
                 g_gps.last_ms = millis();

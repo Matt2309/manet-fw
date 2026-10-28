@@ -14,6 +14,7 @@ namespace {
 
 Node* g_node_logic = nullptr;
 QueueHandle_t g_cmd_queue = nullptr;     // dalla UI: alternare il ruolo
+QueueHandle_t g_gnss_queue = nullptr;    // dal task GNSS: un campione per epoca
 QueueHandle_t g_status_queue = nullptr;  // verso la UI: un solo elemento, sovrascritto
 
 bool g_two_leaders = false;
@@ -79,12 +80,18 @@ void log_detector(uint32_t now) {
         memset(&e, 0, sizeof(e));
         e.type = LogEventType::Det;
         e.t_ms = events[i].t_ms;
-        e.u.det.version = DetVersion::Base;
+        e.u.det.version = events[i].version;
         e.u.det.kind = events[i].kind;
         e.u.det.start = events[i].start;
         e.u.det.id = events[i].target;
         e.u.det.r = static_cast<float>(events[i].r);
+        e.u.det.threshold = static_cast<float>(events[i].threshold);
         logger::post(e);
+        // Nodo perso e scheda sorda sono gli stessi nelle due versioni: si scrivono per entrambe.
+        if (events[i].kind != DetKind::PreAlarm) {
+            e.u.det.version = DetVersion::Gnss;
+            logger::post(e);
+        }
     }
 }
 
@@ -141,6 +148,8 @@ void logic_task(void*) {
         }
         uint8_t cmd;
         while (xQueueReceive(g_cmd_queue, &cmd, 0) == pdTRUE) toggle_role();
+        GnssSample fix;
+        while (xQueueReceive(g_gnss_queue, &fix, 0) == pdTRUE) g_node_logic->on_gnss(fix);
 
         now = millis();
         if (due(now, next_beacon)) {
@@ -183,11 +192,16 @@ Role logic_init() {
     static Node node(g_node.id, role);
     g_node_logic = &node;
     g_cmd_queue = xQueueCreate(4, sizeof(uint8_t));
+    g_gnss_queue = xQueueCreate(4, sizeof(GnssSample));
     g_status_queue = xQueueCreate(1, sizeof(NodeStatus));
     return role;
 }
 
 void logic_start() { xTaskCreatePinnedToCore(logic_task, "logic", 8192, nullptr, configMAX_PRIORITIES - 2, nullptr, 1); }
+
+void logic_post_gnss(const GnssSample& s) {
+    if (g_gnss_queue != nullptr) xQueueSend(g_gnss_queue, &s, 0);
+}
 
 void logic_toggle_role() {
     uint8_t cmd = 1;

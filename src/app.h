@@ -18,6 +18,7 @@ struct GpsStatus {
     volatile bool seen;       // almeno un'epoca ricevuta
     volatile uint32_t last_ms;
     volatile int fix;         // 0, 2, 3
+    volatile bool valid;      // fix valido (3D, satelliti, HDOP): vedi fix_valid()
     volatile int sat;
 };
 extern GpsStatus g_gps;

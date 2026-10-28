@@ -30,6 +30,7 @@ size_t Node::build_beacon(uint32_t now_ms, int battery_pct, uint8_t* out, size_t
     sent.seq = seq_++;
     sent.hops = hops();
     sent.t_s = packets::T_NOT_STARTED;
+    sent.has_pos = detector_.own_position(now_ms, sent.pos);
     sent.battery = packets::battery_code(battery_pct);
     sent.n = detector_.fill_entries(now_ms, sent.nb);
     return packets::pack_beacon(sent, out, cap);

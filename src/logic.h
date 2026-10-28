@@ -2,6 +2,7 @@
 // Gli altri task ricevono copie.
 #pragma once
 
+#include "fix.h"
 #include "node.h"
 #include "role.h"
 
@@ -13,6 +14,9 @@ void logic_start();
 
 // Chiede di alternare il ruolo; la logica applica la regola della finestra.
 void logic_toggle_role();
+
+// Dal task GNSS: campione dell'ultima epoca. Non blocca; se la coda e' piena il campione e' perso.
+void logic_post_gnss(const GnssSample& s);
 
 // Ultima copia dello stato; false se la logica non ha ancora pubblicato nulla.
 bool logic_status(NodeStatus& out);

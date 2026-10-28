@@ -121,7 +121,9 @@ void draw_display(uint32_t now, bool blink_on) {
 
     // Riga 2: GNSS.
     bool recente = g_gps.seen && (now - g_gps.last_ms) < 3000;
-    if (recente && g_gps.fix >= 2) {
+    if (recente && g_gps.valid) {
+        snprintf(s, sizeof(s), "GPS OK %2d sat", g_gps.sat);
+    } else if (recente && g_gps.fix >= 2) {
         snprintf(s, sizeof(s), "GPS %dD %2d sat", g_gps.fix, g_gps.sat);
     } else {
         snprintf(s, sizeof(s), "GPS attesa");
