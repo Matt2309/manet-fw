@@ -1,16 +1,17 @@
 #include "neighbors.h"
 
-bool NeighborTable::update(uint8_t id, int8_t rssi, uint32_t now_ms) {
+bool NeighborTable::update(uint8_t id, int8_t rssi, uint32_t now_ms, uint8_t hops) {
     for (size_t i = 0; i < n_; i++) {
         if (s_[i].id == id) {
             s_[i].rssi = rssi;
             s_[i].last_ms = now_ms;
             s_[i].count++;
+            s_[i].hops = hops;
             return true;
         }
     }
     if (n_ >= packets::MAX_NEIGHBORS) return false;
-    s_[n_] = Neighbor{id, rssi, now_ms, 1};
+    s_[n_] = Neighbor{id, rssi, now_ms, 1, hops};
     n_++;
     return true;
 }

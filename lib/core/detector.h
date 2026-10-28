@@ -63,6 +63,16 @@ public:
     // Stima del compagno id predetta a now_ms; false se mai sentito.
     bool estimate(uint8_t id, uint32_t now_ms, LinkView& v) const;
 
+    // Voce di telemetria per il compagno id: segnale fuso (o, se non c'e', la stima propria predetta), incertezza,
+    // eta' dall'ultimo beacon e codice di allarme. false se mai sentito.
+    bool report(uint8_t id, uint32_t now_ms, packets::TelEntry& e) const;
+
+    // Allarme in corso sul compagno, nella versione scelta da ALARM_USES_GNSS.
+    uint8_t alarm_code(uint8_t id) const;
+
+    // Istante dell'ultimo beacon del compagno; false se mai sentito.
+    bool last_contact(uint8_t id, uint32_t& last_ms) const;
+
     // Compagni in pre-allarme: nella versione data, o in quella scelta da ALARM_USES_GNSS.
     uint8_t pre_count(DetVersion v) const;
     uint8_t pre_count() const { return pre_count(ALARM_USES_GNSS ? DetVersion::Gnss : DetVersion::Base); }
@@ -103,6 +113,10 @@ private:
         bool table_valid;
         uint32_t table_rx_ms;
         Entry entry[MAX_NODES];
+        // Ultimo segnale fuso calcolato (per la telemetria).
+        bool fused_ok;
+        double fused_r;
+        double fused_sigma;
         // Pre-allarme su questo compagno, per le due versioni. Il ritorno al segnale buono e' lo stesso.
         PreState pre[2];
         bool back;
@@ -124,7 +138,7 @@ private:
     Peer& peer(uint8_t id) { return peers_[id - 1]; }
     const Peer& peer(uint8_t id) const { return peers_[id - 1]; }
 
-    bool fused_level(uint8_t target, uint32_t now_ms, double& level) const;
+    bool fused_level(uint8_t target, uint32_t now_ms, double& level, double& sigma) const;
     int receptions_in_window(const Peer& p, uint32_t now_ms) const;
     bool deaf_episode(uint8_t target, uint32_t last_ms) const;
     void gnss_rule(Peer& p, uint32_t now_ms, bool has, double level, double& threshold, uint32_t& min_ms);

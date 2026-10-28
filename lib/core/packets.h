@@ -30,6 +30,8 @@ constexpr size_t POS_SIZE = 9;
 constexpr size_t ENTRY_SIZE = 5;
 constexpr size_t MAX_NEIGHBORS = MAX_NODES - 1;
 constexpr size_t MAX_SIZE = ESPNOW_MAX_PAYLOAD;
+// Record di telemetria al massimo in un pacchetto: intestazione e conteggio, poi record da 5 byte (nessun vicino, nessuna posizione).
+constexpr size_t MAX_TEL_RECORDS = (MAX_SIZE - HEADER_SIZE - 1) / 5;
 
 enum class Type : uint8_t { Beacon = 1, Telemetry = 2, Alarm = 3, Command = 4 };
 
@@ -86,6 +88,10 @@ size_t pack_beacon(const Beacon& b, uint8_t* out, size_t cap);
 bool unpack_beacon(const uint8_t* data, size_t len, Beacon& b);
 
 // --- Telemetria --------------------------------------------------------------
+// Codici dell'ultimo byte di una voce di telemetria.
+constexpr uint8_t ALARM_PRE = 1;
+constexpr uint8_t ALARM_LOST = 2;
+
 struct TelEntry {
     uint8_t id;
     int8_t signal;

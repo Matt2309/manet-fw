@@ -45,7 +45,7 @@ void Detector::on_beacon(const packets::Beacon& b, int8_t rssi, uint32_t now_ms)
     }
 }
 
-bool Detector::fused_level(uint8_t target, uint32_t now_ms, double& level) const {
+bool Detector::fused_level(uint8_t target, uint32_t now_ms, double& level, double& sigma) const {
     const Peer& t = peer(target);
     double sum_w = 0.0, sum_wr = 0.0;
 
@@ -76,6 +76,7 @@ bool Detector::fused_level(uint8_t target, uint32_t now_ms, double& level) const
     }
     if (sum_w <= 0.0) return false;
     level = sum_wr / sum_w;
+    sigma = sqrt(1.0 / sum_w);
     return true;
 }
 
@@ -166,8 +167,11 @@ void Detector::step_pre(Peer& p, uint8_t id, uint32_t now_ms, DetVersion v, bool
 
 void Detector::tick_pre(uint8_t id, uint32_t now_ms, DetEvent* out, size_t& n) {
     Peer& p = peer(id);
-    double level = 0.0;
-    bool has = fused_level(id, now_ms, level);
+    double level = 0.0, sigma = 0.0;
+    bool has = fused_level(id, now_ms, level, sigma);
+    p.fused_ok = has;
+    p.fused_r = level;
+    p.fused_sigma = sigma;
 
     // Spegnimento: segnale sopra soglia + margine per RELEASE_TIME_MS con ricezione sufficiente. Uguale per le due versioni.
     bool back = has && level > PRE_ALARM_DBM + RELEASE_MARGIN_DB;
@@ -243,6 +247,35 @@ bool Detector::estimate(uint8_t id, uint32_t now_ms, LinkView& v) const {
     if (!p.known) return false;
     LinkEstimate x = p.filter.predicted(now_ms);
     v = LinkView{x.r, x.s, sqrt(x.p00), now_ms - p.filter.last_ms()};
+    return true;
+}
+
+bool Detector::report(uint8_t id, uint32_t now_ms, packets::TelEntry& e) const {
+    if (id == 0 || id > MAX_NODES || id == self_) return false;
+    const Peer& p = peer(id);
+    if (!p.known) return false;
+    double r = p.fused_r, sigma = p.fused_sigma;
+    if (!p.fused_ok) {  // niente stime fuse (compagno muto da oltre 2 s): vale la stima propria predetta
+        LinkEstimate x = p.filter.predicted(now_ms);
+        r = x.r;
+        sigma = sqrt(x.p00);
+    }
+    e = packets::TelEntry{id, packets::quantize_i8(r, packets::SIGNAL_STEP), packets::quantize_u8(sigma, packets::SIGMA_STEP),
+                          packets::age_ds(now_ms - p.filter.last_ms()), alarm_code(id)};
+    return true;
+}
+
+uint8_t Detector::alarm_code(uint8_t id) const {
+    if (id == 0 || id > MAX_NODES || id == self_) return 0;
+    const Peer& p = peer(id);
+    if (p.lost_on) return packets::ALARM_LOST;
+    if (p.pre[ALARM_USES_GNSS ? 1 : 0].on) return packets::ALARM_PRE;
+    return 0;
+}
+
+bool Detector::last_contact(uint8_t id, uint32_t& last_ms) const {
+    if (id == 0 || id > MAX_NODES || id == self_ || !peer(id).known) return false;
+    last_ms = peer(id).filter.last_ms();
     return true;
 }
 
